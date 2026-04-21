@@ -34,14 +34,14 @@ async def on_ready():
     print(f"Login Identity --> {bot.user}")
 
 
-@bot.tree.command(name="stock_tw", description="輸入台股代碼")
+@bot.tree.command(name="stock", description="輸入股票代碼查詢資訊與圖表（目前僅支援台股與美股）")
 async def analyze_stock(interaction: discord.Interaction, ticker: str):
 
     # check postfix whether have .TW
-    if "." not in ticker:
-            ticker = f"{ticker}.TW"
-    else:
-            ticker = ticker
+    # if "." not in ticker:
+    #         ticker = f"{ticker}.TW"
+    # else:
+    #         ticker = ticker
 
     await interaction.response.defer()
 

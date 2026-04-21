@@ -28,11 +28,15 @@ class Stock:
 
         # here are only work on taiwan stock
         try:
-            stock_code = self.ticker.split('.')[0]
+            stock_code = self.ticker.split(".TW")[0]
+                
             if stock_code in TW_CODES:
+                if not (self.ticker.endswith(".TW")):
+                    self.ticker += ".TW"
                 return TW_CODES[stock_code].name
-            else:
-                return self.ticker
+            
+            return self.ticker
+            
         except:
             return self.ticker
         
