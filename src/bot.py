@@ -1,8 +1,9 @@
 import discord
 from discord.ext import commands
-from src.main import Stock
+from main import Stock
 import os
 from dotenv import load_dotenv
+import asyncio
 
 
 # load .env
@@ -14,7 +15,7 @@ GUILD = discord.Object(id=int(GUILD_ID)) if GUILD_ID else None
 if TOKEN is None:
     raise ValueError("DISCORD_TOKEN not found in environment variables")
 if GUILD is None:
-    print ("DISCORD_TOKEN not found in environment variables")
+    raise ValueError("GUILD_ID not found in environment variables")
 
 
 # setting bot permission
@@ -47,13 +48,13 @@ async def analyze_stock(interaction: discord.Interaction, ticker: str):
     try:
 
         stock_obj = Stock(ticker)
-        success = stock_obj.fetch_analyze()
+        success = await asyncio.to_thread(stock_obj.download_data)
 
         if not success:
             await interaction.followup.send(f"Cannot get data, please try again...")
 
         result = stock_obj.return_data()
-        img_buf = stock_obj.return_plot()
+        img_buf = await asyncio.to_thread(stock_obj.return_plot)
         file = discord.File(img_buf, filename="chart.png")
 
         # green, red
