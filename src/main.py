@@ -2,10 +2,18 @@ import yfinance as yf
 import pandas as pd
 import pandas_ta as pta  # type: ignore
 import mplfinance as mpf
+import matplotlib
+import mplfinance as mpf
+import matplotlib.pyplot as plt
 import twstock
 import io
+import pytz
+
+if __name__ != "__main__":
+    matplotlib.use('Agg')
 
 TW_CODES = twstock.codes
+
 
 # Stock Object
 class Stock:
@@ -16,6 +24,7 @@ class Stock:
         self.ticker: str = ticker
         self.name: str = self.fetch_stock_name()
         self.data = pd.DataFrame()
+        self.latest_time = None
         self.prices = pd.Series()
         self.change = 0.0
         self.rsi = pd.Series()
@@ -26,7 +35,7 @@ class Stock:
     def fetch_stock_name(self):
         """Get stock's name"""
 
-        # here are only work on taiwan stock
+        # get taiwan stock name
         try:
             stock_code = self.ticker.split(".TW")[0]
                 
@@ -48,11 +57,19 @@ class Stock:
 
         try:
 
-            raw_data = yf.download(self.ticker, period="3mo", interval="1d", threads=True, group_by="column", auto_adjust=True)
-            if raw_data is None or raw_data.empty:
+            daily_data = yf.download(self.ticker, period="3mo", interval="1d", threads=True, auto_adjust=True)
+            intraday_data = yf.download(self.ticker, period="1d", interval="1m", progress=False)
+
+            if daily_data is None or daily_data.empty:
                 return False
-            
-            self.get_data(raw_data)
+            self.get_data(daily_data)
+
+            # get latest time of data
+            if intraday_data is not None and not intraday_data.empty:
+                self.latest_time = intraday_data.index[-1].tz_convert(pytz.timezone('Asia/Taipei'))
+            else:
+                self.latest_time = daily_data.index[-1]
+
             return True
         
         except:
@@ -88,10 +105,13 @@ class Stock:
     def output_data(self):
         """Output stock data"""
 
+        time_str = self.latest_time.strftime('%m-%d %H:%M') if self.latest_time else "N/A"
+
         print("-" * 40)
         print(f"╎ [{self.name}({self.ticker})]")
         print(f"╎ {'∇' if self.change < 0 else '∆'} {abs(self.change):<8.2f}%")
         print(f"╎ Price: {self.prices.iloc[-1]:<8.2f} RSI: {self.rsi.iloc[-1]:<6.2f}")
+        print(f"╎ data time: {time_str}")
         print("-" * 40)
 
     def return_data(self):
@@ -102,6 +122,7 @@ class Stock:
             "price": f"{self.prices.iloc[-1]:.2f}",
             "change": self.change,
             "change_str": f"{'∇' if self.change < 0 else '∆'} {abs(self.change):.2f}%",
+            "latest_time": self.latest_time.strftime('%m-%d %H:%M') if self.latest_time else "N/A",
             "rsi": f"{self.rsi.iloc[-1]:.2f}"
         }
 
@@ -173,18 +194,18 @@ class Stock:
         
         # point to the begining
         buffer.seek(0)
+        plt.close('all')
         return buffer
 
 
 if __name__ == "__main__":
 
     # Stock List
-    ticker_list = ["AAPL"]
+    ticker_list = ["0050.TW", "2330.TW", "AAPL"]
     # Setup object list
     stocks = [Stock(t) for t in ticker_list]
-    all_raw_data = yf.download(ticker_list, period="3mo", group_by="column")
 
     for s in stocks:
-        s.get_data(all_raw_data)
+        s.download_data()
         s.output_data()
         s.output_plot()

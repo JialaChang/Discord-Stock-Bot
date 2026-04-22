@@ -34,14 +34,8 @@ async def on_ready():
     print(f"Login Identity --> {bot.user}")
 
 
-@bot.tree.command(name="stock", description="輸入股票代碼查詢資訊與圖表（目前僅支援台股與美股）")
+@bot.tree.command(name="stock", description="輸入股票代碼查詢資訊與圖表（若不是台股與美股請輸入完整後綴）")
 async def analyze_stock(interaction: discord.Interaction, ticker: str):
-
-    # check postfix whether have .TW
-    # if "." not in ticker:
-    #         ticker = f"{ticker}.TW"
-    # else:
-    #         ticker = ticker
 
     await interaction.response.defer()
 
@@ -52,13 +46,16 @@ async def analyze_stock(interaction: discord.Interaction, ticker: str):
 
         if not success:
             await interaction.followup.send(f"Cannot get data, please try again...")
+            return
 
         result = stock_obj.return_data()
         img_buf = await asyncio.to_thread(stock_obj.return_plot)
         file = discord.File(img_buf, filename="chart.png")
 
-        # green, red
-        color = 0xe74c3c if result['change'] >= 0 else 0x2ecc71
+        # embed color: red, green, gray
+        if result['change'] > 0: color = 0xe74c3c
+        elif result['change'] < 0: color = 0x2ecc71
+        else: color = 0x676767 # 67
         
         # create Embed
         embed = discord.Embed(
@@ -68,6 +65,7 @@ async def analyze_stock(interaction: discord.Interaction, ticker: str):
         embed.add_field(name="價格", value=f"**{result['price']}**", inline=True)
         embed.add_field(name="漲跌", value=f"**{result['change_str']}**", inline=True)
         embed.add_field(name="RSI", value=f"**{result['rsi']}**", inline=True)
+        embed.set_footer(text=f"資料時間: {result['latest_time']}   |   資料來源: Yahoo Finance")
         embed.set_image(url="attachment://chart.png")
 
         await interaction.followup.send(embed=embed, file=file)
