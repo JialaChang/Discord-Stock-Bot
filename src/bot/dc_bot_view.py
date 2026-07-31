@@ -9,13 +9,19 @@ logger = logging.getLogger(__name__)
 
 class DiscordStockChart(View):
     """Discord UI component holding chart state; lets the user switch between the daily and intraday charts."""
-    def __init__(self, stock_ticker: str, history_bytes: bytes, intraday_bytes: bytes):
+    def __init__(self, stock_ticker: str, history_bytes: bytes, intraday_bytes: bytes | None):
         super().__init__(timeout=300.0)
         self.stock_ticker = stock_ticker
         self.message = None       # Keep a Message reference for cleanup in on_timeout
         self.is_history = True    # Which chart is currently displayed
         self.history_bytes = history_bytes
         self.intraday_bytes = intraday_bytes
+
+        if not intraday_bytes:
+            for item in self.children:
+                if isinstance(item, Button) and item.custom_id == "btn_toggle":
+                    item.disabled = True
+                    item.label = "Intraday unavailable"
 
     async def on_timeout(self):
         """On timeout, replace the message with an expiry notice and clear the image bytes."""
@@ -61,7 +67,7 @@ class DiscordStockChart(View):
         await interaction.message.edit(embed=embed, attachments=[file], view=self) # pyright: ignore[reportOptionalMemberAccess]
 
 
-async def send_stock_response(interaction: discord.Interaction, snapshot: StockSnapshot, history_bytes: bytes, intraday_bytes: bytes) -> None:
+async def send_stock_response(interaction: discord.Interaction, snapshot: StockSnapshot, history_bytes: bytes, intraday_bytes: bytes | None) -> None:
     """Build the Discord Embed and send the stock analysis result to the channel."""
     color = 0xe74c3c if snapshot.change_percent > 0 else (0x2ecc71 if snapshot.change_percent < 0 else 0x676767)
 

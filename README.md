@@ -28,7 +28,7 @@
 stock-bot/
 ├── src/
 │   ├── bot/          # Discord 斜線指令 & UI 元件
-│   ├── data/         # 股票資料查詢與下載
+│   ├── data/         # 股票資料查詢（fetcher）與寫入同步（sync）
 │   ├── quant/        # 技術指標計算 & 回測引擎
 │   ├── database/     # 資料庫初始化與 CRUD（SQL 語句集中於 sql/*.sql）
 │   ├── models/       # 共用資料類別
@@ -49,9 +49,10 @@ stock-bot/
 ```sql
 -- 股票基本資料
 stocks (
-    ticker  TEXT PRIMARY KEY,
-    name    TEXT,
-    market  TEXT
+    ticker           TEXT PRIMARY KEY,
+    name             TEXT,
+    market           TEXT,
+    last_backfilled  TEXT   -- 最後一次成功回補的時間戳，NULL 代表未回補
 )
 
 -- 歷史日線（OHLCV）
@@ -70,6 +71,8 @@ daily_prices (
 ```
 
 > **除權息調整**：查詢歷史資料時，系統以 `AdjClose / Close` 的比率回推開高低價，消除配息或股票分割造成的圖表跳空缺口。
+>
+> **還原權值基準一致性**：Yahoo 每次除息或分割都會回頭改寫**整段歷史**的 `Adj Close`。因此 `daily_updater.py` 在寫入前會比對新舊還原收盤價，若偵測到基準改變或既有歷史的結束日早於下載區間，則將該檔股票交給 `historical_backfill.py` 重抓完整歷史。
 
 > 完整 schema 定義於 [src/database/sql/schema.sql](./src/database/sql/schema.sql)；跨模組共用的 SQL 皆以 `.sql` 檔集中於該目錄，由 `load_sql()` 載入。
 
@@ -106,6 +109,8 @@ python scripts/seed_stocks.py          # 寫入股票基本清單
 python scripts/historical_backfill.py  # 回補歷史 K 線（需一段時間）
 ```
 
+> 回補以 `stocks.last_backfilled` 判斷是否略過，只有成功寫入的股票才會蓋上時間戳，下載失敗的下次執行會自動重試。`backfill_history(force=True)` 可忽略時間戳強制全部重補。
+
 ### 每日更新資料庫（建議使用工具排程）
 
 ```bash
@@ -116,8 +121,8 @@ python scripts/daily_updater.py
 
 ```bash
 python src/bot/dc_bot.py         # 啟動 Discord 機器人
-python src/quant/backtest.py     # 執行回測（互動式）
-python src/database/database.py  # 操作資料庫（互動式）
+python src/quant/backtest.py     # 執行回測（CLI界面）
+python src/database/database.py  # 操作資料庫（CLI界面）
 ```
 
 > **HTML 報表**：回測完成後可選擇匯出 HTML 績效報表；資料庫查詢超過 50 筆時自動改為匯出 HTML 報表。檔案輸出至 `exports/`
@@ -136,13 +141,18 @@ python src/database/database.py  # 操作資料庫（互動式）
 | `/stock <ticker>` | 查詢股票資訊、技術指標與 K 線圖 |
 | `/backtest <ticker> <strategy> <period>` | 對指定股票執行策略回測，回傳績效指標與圖表（K 線 + 進出場標記 + 權益曲線） |
 
+> `/stock` 的盤中資料為選用：若遇到限流、網路錯誤或本身不提供分時的標的，仍會顯示日線圖與各項指標，切換按鈕標示為無法使用。
+>
+> `/backtest` 會額外抓取指標暖身所需的歷史資料，暖身不佔用指定的回測區間；倘若資料不足時會回覆錯誤原因。
+
 輸入格式範例：
 
 | 輸入 | 自動解析為 | 說明 |
 |------|-----------|------|
 | `2330` | `2330.TW` | 台積電（台股上市） |
-| `6488` | `6488.TWO` | 環球晶（台股上櫃） |
+| `5274` | `5274.TWO` | 信驊（台股上櫃） |
 | `AAPL` | `AAPL` | 蘋果（美股） |
+| `nvda` | `NVDA` | 一律轉大寫後查詢，大小寫皆可 |
 | `BRK.B` | `BRK-B` | 波克夏 B 股（Yahoo Finance 格式轉換） |
 | `^GSPC` | `^GSPC` | S&P 500 指數 |
 

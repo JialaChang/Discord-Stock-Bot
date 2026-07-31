@@ -1,6 +1,9 @@
+# pyright: reportCallIssue=false, reportPrivateImportUsage=false, reportArgumentType=false
 import pandas as pd
 import pandas_ta as pta
 from src.models import StockSnapshot
+from src.quant.errors import InsufficientDataError
+
 
 def compute_indicators(ticker: str, data: pd.DataFrame, columns: list[str] | None = None) -> None:
     """
@@ -8,7 +11,7 @@ def compute_indicators(ticker: str, data: pd.DataFrame, columns: list[str] | Non
     `columns` selects which indicators to compute; None means compute everything.
     """
     if len(data) < 2:
-        raise ValueError(f"'{ticker}' has fewer than two historical rows and cannot be processed")
+        raise InsufficientDataError(f"'{ticker}' has fewer than two historical rows and cannot be processed...")
 
     close = data['Close']
     high = data['High']
@@ -23,30 +26,30 @@ def compute_indicators(ticker: str, data: pd.DataFrame, columns: list[str] | Non
     # Relative strength of recent gains vs. losses, ranges 0–100.
     # > 70 overbought, < 30 oversold.
     if should('RSI'):
-        data['RSI'] = pta.rsi(close, length=14) # pyright: ignore[reportPrivateImportUsage]
+        data['RSI'] = pta.rsi(close, length=14)
 
     # ── SMA (moving average) ──────────────────────────────────
     # Simple moving average, smooths short-term noise and shows trend direction.
     # MA5 short-term, MA10 mid-term, MA20 monthly, MA60 quarterly.
     if should('SMA_5'):
-        data['SMA_5'] = pta.sma(close, length=5) # pyright: ignore[reportPrivateImportUsage]
+        data['SMA_5'] = pta.sma(close, length=5)
     if should('SMA_10'):
-        data['SMA_10'] = pta.sma(close, length=10) # pyright: ignore[reportPrivateImportUsage]
+        data['SMA_10'] = pta.sma(close, length=10)
     if should('SMA_20'):
-        data['SMA_20'] = pta.sma(close, length=20) # pyright: ignore[reportPrivateImportUsage]
+        data['SMA_20'] = pta.sma(close, length=20)
     if should('SMA_60'):
-        data['SMA_60'] = pta.sma(close, length=60) # pyright: ignore[reportPrivateImportUsage]
+        data['SMA_60'] = pta.sma(close, length=60)
 
     # ── EMA (moving average) ──────────────────────────────────
     # Exponential moving average, weights recent prices more and reacts faster to moves.
     if should('EMA_5'):
-        data['EMA_5'] = pta.ema(close, length=5) # pyright: ignore[reportPrivateImportUsage]
+        data['EMA_5'] = pta.ema(close, length=5)
     if should('EMA_10'):
-        data['EMA_10'] = pta.ema(close, length=10) # pyright: ignore[reportPrivateImportUsage]
+        data['EMA_10'] = pta.ema(close, length=10)
     if should('EMA_20'):
-        data['EMA_20'] = pta.ema(close, length=20) # pyright: ignore[reportPrivateImportUsage]
+        data['EMA_20'] = pta.ema(close, length=20)
     if should('EMA_60'):
-        data['EMA_60'] = pta.ema(close, length=60) # pyright: ignore[reportPrivateImportUsage]
+        data['EMA_60'] = pta.ema(close, length=60)
 
     # ── MACD ───────────────────────────────────────────────────
     # Difference between two EMAs, measures momentum strength and direction changes.
@@ -56,7 +59,7 @@ def compute_indicators(ticker: str, data: pd.DataFrame, columns: list[str] | Non
     # Golden cross (DIF crosses above DEM) is a buy signal; death cross (DIF crosses below DEM) is a sell signal.
     # Crosses above the zero line are stronger than below; an OSC bar flipping negative to positive means momentum turns bullish.
     if should('MACD_dif', 'MACD_dem', 'MACD_osc'):
-        macd_df = pta.macd(close, fast=12, slow=26, signal=9) # pyright: ignore[reportPrivateImportUsage]
+        macd_df = pta.macd(close, fast=12, slow=26, signal=9)
         data['MACD_dif'] = macd_df['MACD_12_26_9']
         data['MACD_dem'] = macd_df['MACDs_12_26_9']
         data['MACD_osc'] = macd_df['MACDh_12_26_9']
@@ -66,7 +69,7 @@ def compute_indicators(ticker: str, data: pd.DataFrame, columns: list[str] | Non
     # K > 80 overbought, K < 20 oversold.
     # A golden cross (K crosses above D) is only meaningful at lows; a death cross only at highs.
     if should('STOCH_K', 'STOCH_D'):
-        stoch_df = pta.stoch(high, low, close, k=9, d=3, smooth_k=3) # pyright: ignore[reportPrivateImportUsage]
+        stoch_df = pta.stoch(high, low, close, k=9, d=3, smooth_k=3)
         data['STOCH_K'] = stoch_df['STOCHk_9_3_3']
         data['STOCH_D'] = stoch_df['STOCHd_9_3_3']
 
@@ -75,7 +78,7 @@ def compute_indicators(ticker: str, data: pd.DataFrame, columns: list[str] | Non
     # Touching the lower band hints at a bounce, touching the upper band at a pullback.
     # A narrowing bandwidth signals an imminent large move.
     if should('BB_U', 'BB_M', 'BB_L', 'BB_W'):
-        bb_df = pta.bbands(close, length=20, std=2) # pyright: ignore[reportArgumentType, reportPrivateImportUsage]
+        bb_df = pta.bbands(close, length=20, std=2)
         data['BB_U'] = bb_df['BBU_20_2.0_2.0']
         data['BB_M'] = bb_df['BBM_20_2.0_2.0']
         data['BB_L'] = bb_df['BBL_20_2.0_2.0']
@@ -87,13 +90,13 @@ def compute_indicators_for_discord(ticker: str, name: str, history_data: pd.Data
     For Discord display: compute the minimal indicator set needed by the Embed and assemble a StockSnapshot.
     """
     if len(history_data) < 2:
-        raise ValueError(f"'{ticker}' has fewer than two historical rows and cannot be processed")
+        raise InsufficientDataError(f"'{ticker}' has fewer than two historical rows and cannot be processed...")
 
     prices = history_data['Close']
-    history_data['RSI'] = pta.rsi(prices, length=14) # pyright: ignore[reportPrivateImportUsage]
-    history_data['SMA_5'] = pta.sma(prices, length=5) # pyright: ignore[reportPrivateImportUsage]
-    history_data['SMA_10'] = pta.sma(prices, length=10) # pyright: ignore[reportPrivateImportUsage]
-    history_data['SMA_20'] = pta.sma(prices, length=20) # pyright: ignore[reportPrivateImportUsage]
+    history_data['RSI'] = pta.rsi(prices, length=14)
+    history_data['SMA_5'] = pta.sma(prices, length=5)
+    history_data['SMA_10'] = pta.sma(prices, length=10)
+    history_data['SMA_20'] = pta.sma(prices, length=20)
 
     # ── Current price and change percentage ──────────────────────
     if not intraday_data.empty:

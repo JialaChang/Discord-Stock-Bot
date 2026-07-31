@@ -4,6 +4,26 @@ import pandas as pd
 from typing import Literal
 
 
+Side = Literal["LONG", "SHORT"]
+
+
+def pnl_ratio(side: Side, entry_price: float, exit_price: float) -> float:
+    """Capital multiplier of a position: 1.05 means the capital grew 5%.
+
+    A short is modelled as unleveraged and fully funded, so the multiplier isfloored at 0. 
+    Without the floor a price that more than doubles produces anegative multiplier, 
+    which flips the sign of every later compounding step and corrupts the whole equity curve.
+    """
+    if entry_price <= 0:
+        return 1.0
+    if side == "LONG":
+        return exit_price / entry_price
+    elif side == "SHORT":
+        # = 1 + (entry_price - exit_price) / entry_price
+        pnlr = 2 - exit_price / entry_price
+        return max(0.0, pnlr)
+
+
 @dataclass
 class Signal:
     """A buy/sell signal along with the strategy conditions that produced it."""
@@ -11,20 +31,17 @@ class Signal:
     conditions: dict[str, bool]  # Whether each sub-condition holds
     values: dict[str, float]     # Indicator values at trigger time
 
+
 @dataclass
 class Position:
     """An open position and the signal that opened it."""
     entry_date: date
     entry_price: float
     entry_signal: Signal
-    side: Literal["LONG", "SHORT"]
+    side: Side
 
     def unrealized_pnl_ratio(self, price_now: float) -> float:
-        if self.side == "LONG":
-            return price_now / self.entry_price
-        else:  # SHORT
-            return 2 - price_now / self.entry_price
-                #  = 1 + (entry_price - price_now) / entry_price
+        return pnl_ratio(self.side, self.entry_price, price_now)
 
 
 @dataclass
@@ -37,7 +54,7 @@ class Trade:
     exit_price: float
     entry_signal: Signal
     exit_signal: Signal
-    side: Literal["LONG", "SHORT"]
+    side: Side
     shares: int = 1  # Number of shares traded
 
     @property
@@ -49,10 +66,7 @@ class Trade:
 
     @property
     def return_on_investment(self) -> float:
-        if self.side == "LONG":
-            return (self.exit_price / self.entry_price - 1) * 100
-        else:
-            return (1 - self.exit_price / self.entry_price) * 100
+        return (pnl_ratio(self.side, self.entry_price, self.exit_price) - 1) * 100
 
     @property
     def is_profit(self) -> bool:
@@ -69,8 +83,10 @@ class BacktestResult:
 
     @property
     def total_return(self) -> float:
+        if self.equity_curve.empty: return 0.0
         first = self.equity_curve.iloc[0]
         last = self.equity_curve.iloc[-1]
+        if first <= 0: return 0.0
         return (last - first) / first * 100
 
     @property
@@ -80,9 +96,10 @@ class BacktestResult:
 
     @property
     def max_drawdown(self) -> float:
+        if self.equity_curve.empty: return 0.0
         peak = self.equity_curve.cummax()
-        drawdown = (self.equity_curve - peak) / peak * 100
-        return drawdown.min()
+        drawdown = (self.equity_curve - peak) / peak.where(peak > 0) * 100
+        return float(drawdown.min()) if drawdown.notna().any() else 0.0
 
     @property
     def trade_count(self) -> int:

@@ -26,6 +26,10 @@ class StockDataFetcher:
 
     def _format_ticker(self, ticker: str) -> str:
         """Normalize user input into Yahoo Finance format. Lookup order: local DB -> twstock -> raw input."""
+        # Tickers are stored upper-case and SQLite's `=` is case-sensitive, so an
+        # input like "aapl" would otherwise miss every lookup and look like a
+        # non-existent stock.
+        ticker = ticker.strip().upper()
         try:
             # Strip any existing suffix
             base_code = ticker.split(".")[0]
@@ -45,7 +49,11 @@ class StockDataFetcher:
             # If not found in the database, fall back to a twstock lookup
             if base_code in TW_CODES:
                 market = TW_CODES[base_code].market
-                return f"{base_code}.TW" if market == '上市' else f"{base_code}.TWO"
+                if market == '上市':
+                    return f"{base_code}.TW"
+                if market == '上櫃':
+                    return f"{base_code}.TWO"
+                # Emerging-board and other boards have no Yahoo suffix to map to
             return ticker
 
         except Exception as e:
@@ -98,13 +106,18 @@ class StockDataFetcher:
             if self.historical_data.empty:
                 logger.info(f"No historical data for '{self.ticker}' in the database...")
             else:
-                # Back out Open/High/Low from the AdjClose/Close ratio to remove
-                # chart gaps caused by dividends and splits
-                adj_ratio = self.historical_data['AdjClose'] / self.historical_data['Close']
+                # Back out Open/High/Low from the AdjClose/Close ratio to remove chart gaps caused by dividends and splits.
+                # Rows with a missing or non-positive close have no usable ratio, so leave them unadjusted (ratio 1.0)
+                close = self.historical_data['Close']
+                adj_close = self.historical_data['AdjClose']
+                adj_ratio = (adj_close / close.where(close > 0)).fillna(1.0)
                 self.historical_data['Open'] = self.historical_data['Open'] * adj_ratio
                 self.historical_data['High'] = self.historical_data['High'] * adj_ratio
                 self.historical_data['Low'] = self.historical_data['Low'] * adj_ratio
-                self.historical_data['Close'] = self.historical_data['AdjClose']
+                self.historical_data['Close'] = adj_close.fillna(close)
+
+                # Incomplete rows would silently poison indicators and charts downstream
+                self.historical_data = self.historical_data.dropna(subset=['Open', 'High', 'Low', 'Close'])
 
                 logger.info(f"Loaded {len(self.historical_data)} historical rows for '{self.ticker}' from the database!")
 
@@ -128,11 +141,11 @@ class StockDataFetcher:
             core_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
             data = data[core_cols]
 
-            # Remove any rows containing NaN
-            self.intraday_data = data.dropna()
+            # Remove close rows containing NaN
+            self.intraday_data = data.dropna(subset='Close')
 
             if not self.intraday_data.empty:
-                logger.info(f"Downloaded {len(self.intraday_data)} intraday rows for '{self.ticker}'!")
+                logger.info(f"Downloaded {len(self.intraday_data)} intraday rows for '{self.ticker}'.")
 
             return self.intraday_data
 
@@ -191,6 +204,7 @@ class StockDataFetcher:
             "Historical rows": len(hist_data),
             "Intraday rows": len(intra_data),
         }
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

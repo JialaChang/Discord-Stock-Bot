@@ -10,6 +10,12 @@
 classDiagram
     direction TB
 
+    class trade_module {
+        <<Module: models/trade>>
+        +pnl_ratio(side, entry_price, exit_price) float
+    }
+    note for trade_module "損益倍率統一由此計算；做空以 0 為下限，避免倍率轉負後反轉複利正負號"
+
     class StockSnapshot {
         <<Data Transfer Object>>
         +str ticker
@@ -69,6 +75,8 @@ classDiagram
     Trade --> Signal : 包含 entry/exit
     Position --> Signal : 包含 entry
     BacktestResult --> Trade : 包含 list
+    Position ..> trade_module : unrealized_pnl_ratio() 委派
+    Trade ..> trade_module : return_on_investment 委派
 ```
 
 ## 2. 技術分析與回測引擎 (Quant)
@@ -89,16 +97,19 @@ classDiagram
     class Strategy {
         <<Abstract>>
         +list~str~ required_columns
+        +int warmup
         +signal(row, position) Signal
     }
 
     class RSIStrategy {
         +required_columns = ["RSI"]
+        +warmup = 14
         +signal(row, position) Signal
     }
 
     class EMAStrategy {
         +required_columns = ["EMA_5", "EMA_20"]
+        +warmup = 20
         +signal(row, position) Signal
     }
 
@@ -108,9 +119,16 @@ classDiagram
         +Position position
         +list~Trade~ trades
         +list~float~ equity
-        +run(ticker, data) BacktestResult
+        +required_history_days(period_days) int
+        +run(ticker, data, start) BacktestResult
         +print_backtest_result(result) None
         +export_backtest_result_html(result) str
+        -_open_position(date, price, signal, side) None
+        -_close_position(ticker, date, price, exit_signal) None
+    }
+
+    class InsufficientDataError {
+        <<Exception: quant/errors>>
     }
 
     class StockDataFetcher {
@@ -146,6 +164,8 @@ classDiagram
     BacktestEngine ..> Position : 持倉追蹤
     BacktestEngine ..> Trade : 產生
     BacktestEngine ..> BacktestResult : 回傳
+    BacktestEngine ..> InsufficientDataError : 資料不足時拋出
+    indicator ..> InsufficientDataError : 資料不足時拋出
 ```
 
 ## 3. Discord 機器人與圖表渲染 (Bot & Utils)
@@ -159,11 +179,14 @@ classDiagram
     class dc_bot {
         <<Module: bot/dc_bot>>
         +commands.Bot bot
+        +list~str~ BOT_PERIODS
         +on_ready()
         +on_disconnect()
+        +on_resumed()
         +analyze_stock(interaction, ticker)
         +backtest_stock(interaction, ticker, strategy, period)
     }
+    note for dc_bot "BOT_PERIODS 僅引用 PERIOD_DAYS 的 key"
 
     class dc_bot_view {
         <<Module: bot/dc_bot_view>>
@@ -175,7 +198,7 @@ classDiagram
         <<discord.ui.View>>
         +str stock_ticker
         +bytes history_bytes
-        +bytes intraday_bytes
+        +bytes_or_None intraday_bytes
         +bool is_history
         +Message message
         +on_timeout()
@@ -223,7 +246,7 @@ classDiagram
 
 ## 4. 資料擷取、資料庫與排程腳本 (Data & Database & Scripts)
 
-`src/data/fetcher.py` 整合 SQLite 與 yfinance；`src/database/` 為底層 CRUD 與 SQL 語句集中地；`scripts/` 為獨立排程腳本。
+`src/data/fetcher.py` 為讀取門面、`src/data/sync.py` 為寫入路徑；`src/database/` 為底層 CRUD 與 SQL 語句集中地；`scripts/` 為獨立排程腳本。
 
 ```mermaid
 classDiagram
@@ -236,11 +259,24 @@ classDiagram
         +DataFrame intraday_data
         +check_stock_exist() bool
         +fetch_stock_name() str
-        +fetch_historical_data(period) DataFrame
+        +fetch_historical_data(days) DataFrame
         +fetch_intraday_data() DataFrame
         +fetch_latest_time() Timestamp
         +get_data_count() dict
     }
+
+    class sync {
+        <<Module: data/sync>>
+        +download_ohlcv(tickers, period) DataFrame
+        +extract_ticker_frame(data, ticker) DataFrame
+        +records_from_frame(ticker, frame) list
+        +upsert_records(conn, records) None
+        +fetch_all_tickers(conn) list
+        +fetch_pending_tickers(conn, max_age_days) list
+        +mark_backfilled(conn, tickers) None
+        +needs_full_refresh(conn, ticker, frame) bool
+    }
+    note for sync "needs_full_refresh 偵測 Adj Close 遭改寫或歷史存在缺口"
 
     class database {
         <<Module: database/database>>
@@ -273,7 +309,9 @@ classDiagram
         +ticker TEXT PK
         +name TEXT NOT NULL
         +market TEXT
+        +last_backfilled TEXT
     }
+    note for stocks "last_backfilled 決定回補是否略過"
 
     class daily_prices {
         <<Database Table>>
@@ -290,12 +328,13 @@ classDiagram
 
     class daily_updater {
         <<Script>>
-        +update_stock_data()
+        +update_stock_data() list~str~
     }
+    note for daily_updater "回傳須重取完整歷史的股票"
 
     class historical_backfill {
         <<Script>>
-        +backfill_history(period)
+        +backfill_history(period, tickers, force)
     }
 
     class seed_stocks {
@@ -308,13 +347,15 @@ classDiagram
     StockDataFetcher ..> stocks : 讀取
     StockDataFetcher ..> daily_prices : 讀取
     StockDataFetcher --> database : load_sql()
+    sync --> database : load_sql()
+    sync ..> stocks : 讀寫 last_backfilled 欄位
+    sync ..> daily_prices : 寫入
     database --> sql_files : load_sql() 載入
     database ..> stocks : CURD
     database ..> daily_prices : CURD
-    daily_updater --> database : load_sql()
-    daily_updater ..> daily_prices : 寫入
-    historical_backfill --> database : load_sql()
-    historical_backfill ..> daily_prices : 寫入
+    daily_updater --> sync : 下載 / 寫入 / 偵測
+    daily_updater --> historical_backfill : 觸發完整歷史重取
+    historical_backfill --> sync : 下載 / 寫入 / 標記回補時間
     seed_stocks --> database : 初始化 / load_sql()
     seed_stocks ..> stocks : 寫入
     daily_prices --> stocks : FK (ticker)

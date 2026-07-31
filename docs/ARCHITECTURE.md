@@ -8,10 +8,34 @@
 
 ### `StockDataFetcher` (`src/data/fetcher.py`)
 
-整合三個資料源的查詢門面：
+整合三個資料源的**讀取**門面：
 - **SQLite**：歷史日線與股票名稱
 - **yfinance**：當日 1 分鐘盤中資料
 - **twstock**：台股代碼與市場別（上市 / 上櫃）對照
+
+代碼正規化：輸入先轉大寫再解析 `.TW` / `.TWO` 後綴。
+
+還原權值回推時，若收盤價缺值或非正數則保持原值不調整，避免產生 inf / NaN。
+
+### `sync.py` (`src/data/sync.py`)
+
+yfinance → SQLite 的**寫入**路徑，由兩支回補腳本共用，統一批次資料的拆解與寫入方式：
+
+| 函式 | 說明 |
+|------|------|
+| `download_ohlcv(tickers, period)` | 批次下載，失敗回傳空 DataFrame 而不中斷後續批次 |
+| `extract_ticker_frame(data, ticker)` | 依欄位是否為 MultiIndex 判斷拆法 |
+| `records_from_frame` / `upsert_records` | 轉成參數 tuple 並批次 upsert |
+| `fetch_all_tickers` / `fetch_pending_tickers(max_age_days)` | 全部股票／尚未回補或戳記過期的股票 |
+| `mark_backfilled(conn, tickers)` | 蓋上回補時間戳，僅限成功寫入者 |
+| `needs_full_refresh(conn, ticker, frame)` | 判斷此檔是否需要重抓完整歷史（見下） |
+
+**`needs_full_refresh` 的兩種情境**：
+
+1. **還原收盤價遭改寫**：Yahoo 每逢除息或分割會回溯改寫整段歷史的 `Adj Close`。下載區間內的列由 upsert 修正，其餘較舊的列仍留存於舊基準。
+2. **歷史存在缺口**：更新腳本停擺超過下載區間長度時，期間資料未被取得。
+
+兩項檢查具先後順序：缺口檢查須先於漂移比對執行。下載區間與既有資料無日期重疊時，漂移比對缺乏可資比對的基準，而該情形正對應歷史最可能過期的狀況。
 
 ### `compute_indicators` / `compute_indicators_for_discord` (`src/quant/indicator.py`)
 
@@ -66,6 +90,10 @@
 - 結束時未平倉部位以最後一日收盤強制平倉，回傳 `BacktestResult`
 - `export_backtest_result_html()`：匯出 HTML 績效報表
 
+**指標暖身資料另行取得，不佔用回測區間**：呼叫端依 `required_history_days(period_days)` 決定取得天數，並將 `start` 傳入 `run()`，待指標計算完成後才截去暖身區段。若僅取得使用者指定的區間，短週期回測的可用列數將被暖身消耗殆盡。資料量不足時拋出 `InsufficientDataError`（`src/quant/errors.py`）。
+
+`PERIOD_DAYS` 為回測區間長度的**唯一定義來源**，Discord 指令僅引用其部分 key，不另行定義天數。
+
 ```
 每日迴圈：
   1. 執行昨日 pending signal → 今日開盤成交
@@ -76,12 +104,12 @@
 
 ### `Strategy` (`src/quant/strategy.py`)
 
-抽象基底，子類實作 `signal()` 並宣告 `required_columns`：
+抽象基底，子類實作 `signal()` 並宣告 `required_columns` 與 `warmup`：
 
-| 類別 | `required_columns` | 策略 |
-|------|--------------------|------|
-| `RSIStrategy` | `["RSI"]` | RSI 超買 / 超賣 |
-| `EMAStrategy` | `["EMA_5", "EMA_20"]` | EMA5/20 黃金 / 死亡交叉 |
+| 類別 | `required_columns` | `warmup` | 策略 |
+|------|--------------------|----------|------|
+| `RSIStrategy` | `["RSI"]` | 14 | RSI 超買 / 超賣 |
+| `EMAStrategy` | `["EMA_5", "EMA_20"]` | 20 | EMA5/20 黃金 / 死亡交叉 |
 
 ### `Signal` / `Position` / `Trade` / `BacktestResult` (`src/models/trade.py`)
 
@@ -92,6 +120,8 @@
 | `Trade` | 單筆交易；屬性 `profit_and_loss`、`return_on_investment`、`is_profit` |
 | `BacktestResult` | 回測彙總（`trades`／`equity_curve`／`data`）；屬性 `total_return`、`win_rate`、`max_drawdown`、`trade_count` |
 
+損益倍率一律由 `pnl_ratio(side, entry_price, exit_price)` 計算，做空以 0 為下限。未設下限時，`2 - exit/entry` 於股價漲逾一倍後轉為負值，並反轉其後每次複利的正負號，導致權益曲線失真且不易察覺。`Trade.return_on_investment` 由同一函式導出，確保報表與權益曲線一致。
+
 ---
 
 ## Discord 指令資料流
@@ -100,20 +130,26 @@
 
 ```
 使用者輸入 ticker
-    → StockDataFetcher._format_ticker()   # 補齊 .TW / .TWO 後綴
+    → StockDataFetcher._format_ticker()   # 轉大寫、補齊 .TW / .TWO 後綴（在執行緒中）
     → asyncio.gather()                    # 並發：SQLite 歷史 + yfinance 盤中
     → compute_indicators_for_discord()    # RSI(14)、MA5/10/20、漲跌幅 → StockSnapshot
-    → asyncio.gather()                    # 並發：歷史 K 線圖 + 盤中分時圖
+    → asyncio.gather()                    # 並發：歷史 K 線圖 +（有分時資料才畫）分時圖
     → send_stock_response()               # 組裝 Embed 送出
     → DiscordStockChart View              # Embed + 可切換按鈕（5 分鐘逾時）
 ```
+
+僅歷史資料為空時視為查詢失敗；無分時資料時仍正常回覆，切換按鈕則停用並標示無法使用。
 
 ### `/backtest`
 
 ```
 使用者輸入 ticker、strategy、period
-    → StockDataFetcher.fetch_historical_data(period)  # 歷史 OHLCV
-    → BacktestEngine.run(ticker, data)                # 逐日回測 → BacktestResult
+    → PERIOD_DAYS[period]                             # 區間長度的唯一來源
+    → engine.required_history_days(period_days)       # 區間 + 指標暖身
+    → StockDataFetcher.fetch_historical_data(days)    # 歷史 OHLCV
+    → BacktestEngine.run(ticker, data, start)         # 算完指標後切掉暖身段 → BacktestResult
     → generate_backtest_chart()                       # K 線 + 進出場標記 + 權益曲線
     → send_backtest_response()                        # 績效 Embed 附圖送出
 ```
+
+資料不足時 `run()` 拋出 `InsufficientDataError`，指令將其訊息原文回覆使用者。

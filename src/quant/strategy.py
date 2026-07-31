@@ -2,15 +2,19 @@ from abc import ABC, abstractmethod
 from pandas import Series
 from src.models import Signal, Position
 
+
 class Strategy(ABC):
-    required_columns: list[str] = []
+    required_columns: list[str] = []  # Indicator columns this strategy needs; engine computes only these
+    warmup: int = 0  # Rows consumed before the first valid indicator value; engine fetches this many extra
 
     @abstractmethod
     def signal(self, row: Series, position: Position | None) -> Signal:
         ...
 
+
 class RSIStrategy(Strategy):
     required_columns = ["RSI"]
+    warmup = 14
 
     def signal(self, row: Series, position: Position | None) -> Signal:
         rsi = round(float(row['RSI']), 2)
@@ -27,9 +31,11 @@ class RSIStrategy(Strategy):
             return Signal("EXIT_SHORT", {"rsi_oversold": True}, {"RSI": rsi})
         
         return Signal("HOLD", {}, {"RSI": rsi})
-    
+
+
 class EMAStrategy(Strategy):
     required_columns = ["EMA_5", "EMA_20"]
+    warmup = 20
 
     def signal(self, row: Series, position: Position | None) -> Signal:
         ema5 = round(float(row['EMA_5']), 2)

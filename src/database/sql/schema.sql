@@ -2,7 +2,8 @@
 CREATE TABLE IF NOT EXISTS stocks (
     ticker TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    market TEXT
+    market TEXT,
+    last_backfilled TEXT
 );
 
 -- Daily historical price table
