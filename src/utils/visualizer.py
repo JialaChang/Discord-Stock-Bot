@@ -6,7 +6,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from datetime import date
 
+
 from src.models import BacktestResult
+
 
 # Disable GUI interactive mode and force the 'Agg' backend for headless server-side image generation
 matplotlib.use('Agg')
@@ -97,6 +99,7 @@ def generate_intraday_chart(ticker: str, data: pd.DataFrame) -> io.BytesIO:
     buffer.seek(0)
     plt.close('all')
     return buffer
+
 
 def generate_backtest_chart(ticker: str, result: BacktestResult) -> io.BytesIO:
     """Generate a backtest chart: candlesticks + entry/exit markers + equity curve."""

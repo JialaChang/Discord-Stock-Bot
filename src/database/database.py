@@ -8,6 +8,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
 # Absolute path to the project root
 BASE_DIR = os.path.dirname(os.path.dirname((os.path.dirname(os.path.abspath(__file__)))))
 if BASE_DIR not in sys.path:
@@ -16,11 +17,13 @@ if BASE_DIR not in sys.path:
 DB_PATH = os.path.join(BASE_DIR, 'stock_data.db')
 SQL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sql')
 
+
 @lru_cache
 def load_sql(name: str) -> str:
     """Load a SQL statement from src/database/sql/<name>.sql."""
     with open(os.path.join(SQL_DIR, f'{name}.sql'), encoding='utf-8') as f:
         return f.read()
+
 
 def init_database():
     """Initialize the SQLite database tables."""
@@ -38,6 +41,7 @@ def insert_stock(ticker: str, name: str, market: str) -> None:
         cursor.execute(load_sql('upsert_stock'), (ticker, name, market))
         connect.commit()
 
+
 def delete_stock(ticker: str) -> None:
     """Delete a single stock's master record."""
     with sqlite3.connect(DB_PATH) as connect:
@@ -50,6 +54,7 @@ def delete_stock(ticker: str) -> None:
         ''', (ticker,))
         connect.commit()
 
+
 def get_stock(ticker: str) -> dict[str, Any] | None:
     """Query a single stock's master record."""
     with sqlite3.connect(DB_PATH) as connect:
@@ -58,6 +63,7 @@ def get_stock(ticker: str) -> dict[str, Any] | None:
         cursor.execute('SELECT * FROM stocks WHERE ticker = ?', (ticker,))
         row = cursor.fetchone()
         return dict(row) if row else None
+
 
 def get_daily_prices(ticker: str, days: int = 30) -> list[dict[str, Any]]:
     """Get historical prices for the given stock."""
@@ -72,12 +78,14 @@ def _menu_init_database():
     init_database()
     print("Database initialization complete.")
 
+
 def _menu_insert_stock():
     ticker = input("Enter ticker (e.g. 2330.TW): ").strip()
     name   = input("Enter stock name: ").strip()
     market = input("Enter market (TW / TWO / US / INDEX): ").strip()
     insert_stock(ticker, name, market)
     print(f"Inserted/Updated: {ticker} {name}")
+
 
 def _menu_delete_stock():
     ticker = input("Enter the ticker to delete: ").strip()
@@ -88,6 +96,7 @@ def _menu_delete_stock():
     else:
         print("Cancelled...")
 
+
 def _menu_get_stock():
     ticker = input("Enter ticker: ").strip()
     info = get_stock(ticker)
@@ -97,6 +106,7 @@ def _menu_get_stock():
             print(f"  {key:<8} : {value}")
     else:
         print(f"No master record found for {ticker}...")
+
 
 def _menu_get_prices():
     ticker = input("Enter ticker: ").strip()
@@ -127,6 +137,7 @@ def _menu_get_prices():
         adj_close_s = f'{adj_close_p:.2f}' if adj_close_p is not None else 'N/A'
         vol_s   = f'{vol:.0f}'     if vol     is not None else 'N/A'
         print(f"{p['date']:<12} | {open_s:>8} | {close_s:>8} | {adj_close_s:>8} | {vol_s:>12}")
+
 
 def _export_prices_html(ticker: str, prices: list[dict[str, Any]]):
     """Write price records to a HTML report under the project's exports/ directory."""
@@ -167,6 +178,7 @@ def _export_prices_html(ticker: str, prices: list[dict[str, Any]]):
         f.write(html)
 
     print(f"\n>> {len(prices)} records exported to: {filepath}")
+
 
 _MENU = [
     ("Initialize database", _menu_init_database),

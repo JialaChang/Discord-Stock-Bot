@@ -3,7 +3,7 @@ from datetime import datetime
 
 @dataclass
 class StockSnapshot:
-    """Data Transfer Object carrying stock analysis results across modules."""
+    """Stock analysis results"""
     ticker: str
     name: str
     current_price: float
