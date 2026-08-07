@@ -34,43 +34,57 @@ def import_taiwan_stocks(conn: sqlite3.Connection):
     logger.info(f"Imported {count} Taiwan stocks!")
 
 
+# Each of these articles marks its constituents table with id="constituents"; select on
+# that, never on a positional index. A positional index breaks whenever an article gains
+# an unrelated table, and it already has: the Nasdaq-100 constituents moved out to their
+# own list page, leaving the original article with no constituents table at all.
+#
+# `min_rows` turns a silent structural change into a visible failure rather than a
+# half-seeded stocks table.
+WIKIPEDIA_INDICES = {
+    "S&P 500": {
+        "url": 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies',
+        "ticker_col": 'Symbol',
+        "name_col": 'Security',
+        "min_rows": 450,
+    },
+    "Dow Jones": {
+        "url": 'https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average',
+        "ticker_col": 'Symbol',
+        "name_col": 'Company',
+        "min_rows": 30,
+    },
+    "Nasdaq 100": {
+        "url": 'https://en.wikipedia.org/wiki/List_of_NASDAQ-100_companies',
+        "ticker_col": 'Ticker',
+        "name_col": 'Company',
+        "min_rows": 95,
+    },
+}
+
+
 def import_us_stocks(conn: sqlite3.Connection):
     """Scrape the constituents of the three major US indices (S&P 500 / DJIA / NASDAQ 100) from Wikipedia's public tables."""
     logger.info("Importing US stocks...")
     cursor = conn.cursor()
     total_count = 0
 
-    # Map each target Wikipedia URL to the table index within its DOM
-    urls = {
-        "S&P 500": {
-            "url": 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies',
-            "table_index": 0,
-            "ticker_col": 'Symbol',
-            "name_col": 'Security'
-        },
-        "Dow Jones": {
-            "url": 'https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average',
-            "table_index": 1,
-            "ticker_col": 'Symbol',
-            "name_col": 'Company',
-        },
-        "Nasdaq 100": {
-            "url": 'https://en.wikipedia.org/wiki/Nasdaq-100',
-            "table_index": 5,
-            "ticker_col": 'Ticker',
-            "name_col": 'Company'
-        }
-    }
-
-    for index_name, config in urls.items():
+    for index_name, config in WIKIPEDIA_INDICES.items():
         try:
             logger.info(f"Scraping {index_name} constituents...")
             # Wikipedia blocks default bots, so spoof a User-Agent header to get around it
             tables = pd.read_html(
                 config["url"],
+                attrs={'id': 'constituents'},
                 storage_options={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
             )
-            data = tables[config["table_index"]]
+            data = tables[0]
+
+            if len(data) < config["min_rows"]:
+                raise ValueError(
+                    f"got {len(data)} rows, expected at least {config['min_rows']} "
+                    f"- the page layout has probably changed"
+                )
 
             # Clean the data: convert US special tickers like BRK.B into the Yahoo-compatible BRK-B
             records = [
@@ -96,17 +110,19 @@ def import_global_indices(conn: sqlite3.Connection):
     logger.info("Importing major global and core market indices...")
     cursor = conn.cursor()
 
+    # Names follow each index provider's own wording, not Yahoo's abbreviated shortName
     indices = {
         # US and volatility benchmarks
         '^GSPC': 'S&P 500 Index',
         '^DJI': 'Dow Jones Industrial Average',
         '^IXIC': 'NASDAQ Composite Index',
-        '^SOX': 'PHLX Semiconductor Index',
+        '^NDX': 'NASDAQ-100 Index',
+        '^RUT': 'Russell 2000 Index',
+        '^SOX': 'PHLX Semiconductor Sector Index',
         '^VIX': 'CBOE Volatility Index',
 
         # Asia-Pacific indices
-        '^TWII': 'TAIEX (Taiwan Weighted Index)',
-        '^TWOII': 'Taipei Exchange (TPEx) Index',
+        '^TWII': 'TAIEX (TWSE Capitalization Weighted Stock Index)',
         '^HSI': 'Hang Seng Index',
         '000001.SS': 'SSE Composite Index',
         '399001.SZ': 'SZSE Component Index',
