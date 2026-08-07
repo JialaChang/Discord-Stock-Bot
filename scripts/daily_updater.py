@@ -3,7 +3,6 @@ import sqlite3
 import time
 import logging
 
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.database import DB_PATH
 from src.data.sync import (download_ohlcv, extract_ticker_frame, records_from_frame, upsert_records,
@@ -49,7 +48,7 @@ def update_stock_data() -> list[str]:
                 for ticker in chunk_tickers:
                     try:
                         frame = extract_ticker_frame(data, ticker)
-                        if frame is None:
+                        if frame.empty:
                             logger.warning(f"'{ticker}' download failed or has no valid latest data...")
                             continue
 

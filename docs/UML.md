@@ -1,6 +1,6 @@
 # 系統架構與 UML 類別圖
 
-依專案目錄結構拆成 4 張圖，若某類別的完整定義屬於其他圖，會以 `<<見「X」圖>>` 標註，只保留關聯線。
+依專案目錄結構拆成 5 張圖，若某類別的完整定義屬於其他圖，會以 `<<見「X」圖>>` 標註，只保留關聯線。
 
 ## 1. 資料模型 (Models)
 
@@ -359,4 +359,91 @@ classDiagram
     seed_stocks --> database : 初始化 / load_sql()
     seed_stocks ..> stocks : 寫入
     daily_prices --> stocks : FK (ticker)
+```
+
+## 5. 測試 (Tests)
+
+`tests/` 為離線回歸測試：資料庫為 in-memory SQLite，行情為 `conftest.py` 產生的合成 OHLCV，不觸及 yfinance 或本機 `stock_data.db`。下圖同時作為覆蓋範圍對照，標示各測試模組驗證哪些正式單元。
+
+```mermaid
+classDiagram
+    direction TB
+
+    class conftest {
+        <<Module: tests/conftest>>
+        +db() Connection
+        +seeded_db() Connection
+        +make_ohlcv(closes, opens, highs, lows, start) DataFrame
+    }
+    note for conftest "make_ohlcv 預設高低點距收盤 1%，不會誤觸 15% 停損"
+
+    class ScriptedStrategy {
+        <<Test Double: tests/test_backtest>>
+        +list~str~ actions
+        +int bar
+        +signal(row, position) Signal
+    }
+
+    class test_models {
+        <<Test Module>>
+        TestPnlRatio
+        TestTrade
+        TestBacktestResult
+    }
+
+    class test_backtest {
+        <<Test Module>>
+        TestOrderExecution
+        TestStopLoss
+        TestEquityCurve
+        TestIndicatorWarmup
+    }
+
+    class test_sync {
+        <<Test Module>>
+        TestExtractTickerFrame
+        TestRecordsFromFrame
+        TestNeedsFullRefresh
+        TestBackfillStamps
+        TestUpsertRecords
+    }
+
+    class test_fetcher {
+        <<Test Module>>
+        +stock_db() Path
+        TestTickerNormalization
+        TestExistenceLookup
+        TestAdjustedPriceReconstruction
+    }
+    note for test_fetcher "自建暫存資料庫並改寫 fetcher.DB_PATH"
+
+    class Strategy {
+        <<見「技術分析與回測引擎」圖>>
+    }
+    class BacktestEngine {
+        <<見「技術分析與回測引擎」圖>>
+    }
+    class trade_module {
+        <<見「資料模型」圖>>
+    }
+    class BacktestResult {
+        <<見「資料模型」圖>>
+    }
+    class sync {
+        <<見「資料擷取、資料庫與排程腳本」圖>>
+    }
+    class StockDataFetcher {
+        <<見「資料擷取、資料庫與排程腳本」圖>>
+    }
+
+    ScriptedStrategy --|> Strategy : 繼承
+    test_backtest --> ScriptedStrategy : 驅動引擎
+    test_backtest --> conftest : make_ohlcv
+    test_sync --> conftest : seeded_db
+
+    test_models ..> trade_module : 驗證損益倍率下限
+    test_models ..> BacktestResult : 驗證績效指標與空曲線防護
+    test_backtest ..> BacktestEngine : 驗證成交規則、停損與暖身
+    test_sync ..> sync : 驗證漂移／缺口偵測與回補戳記
+    test_fetcher ..> StockDataFetcher : 驗證代碼正規化與還原權值回推
 ```

@@ -7,8 +7,10 @@ import logging
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.database import DB_PATH, init_database, load_sql
 
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
+
 
 def import_taiwan_stocks(conn: sqlite3.Connection):
     """Import all Taiwan listed/OTC stocks from the twstock package's static list."""
@@ -30,6 +32,7 @@ def import_taiwan_stocks(conn: sqlite3.Connection):
 
     conn.commit()
     logger.info(f"Imported {count} Taiwan stocks!")
+
 
 def import_us_stocks(conn: sqlite3.Connection):
     """Scrape the constituents of the three major US indices (S&P 500 / DJIA / NASDAQ 100) from Wikipedia's public tables."""
@@ -86,6 +89,7 @@ def import_us_stocks(conn: sqlite3.Connection):
             logger.error(f"Failed to import {index_name}: {e}")
 
     logger.info(f"Imported {total_count} US stocks!")
+
 
 def import_global_indices(conn: sqlite3.Connection):
     """Hard-code the major global market indices."""

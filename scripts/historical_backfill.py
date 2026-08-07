@@ -3,7 +3,6 @@ import sqlite3
 import time
 import logging
 
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.database import DB_PATH
 from src.data.sync import download_ohlcv, extract_ticker_frame, records_from_frame, upsert_records, fetch_all_tickers, fetch_pending_tickers, mark_backfilled
@@ -50,7 +49,7 @@ def backfill_history(period: int, tickers: list[str] | None = None, force: bool 
                 for ticker in chunk_tickers:
                     try:
                         frame = extract_ticker_frame(data, ticker)
-                        if frame is None:
+                        if frame.empty:
                             logger.warning(f"'{ticker}' download failed or has no valid historical data...")
                             continue
 

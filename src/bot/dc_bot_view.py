@@ -5,7 +5,9 @@ import logging
 
 from src.models import StockSnapshot, BacktestResult
 
+
 logger = logging.getLogger(__name__)
+
 
 class DiscordStockChart(View):
     """Discord UI component holding chart state; lets the user switch between the daily and intraday charts."""

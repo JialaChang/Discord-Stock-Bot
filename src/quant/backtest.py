@@ -3,7 +3,6 @@ import pandas as pd
 import sys, os
 from datetime import date as date_type, datetime, timedelta
 
-
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(BASE_DIR)
 from src.models import BacktestResult, Trade, Position, Signal, Side, pnl_ratio

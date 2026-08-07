@@ -2,11 +2,11 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 from typing import cast
-
 import pandas as pd
 import yfinance as yf
 
 from src.database import load_sql
+
 
 logger = logging.getLogger(__name__)
 
@@ -45,19 +45,21 @@ def download_ohlcv(tickers: list[str], period: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def extract_ticker_frame(data: pd.DataFrame, ticker: str) -> pd.DataFrame | None:
+def extract_ticker_frame(data: pd.DataFrame, ticker: str) -> pd.DataFrame:
     """Pull one ticker's rows out of a yfinance batch download.
+
+    Returns an empty frame so callers check `.empty`.
 
     yfinance returns flat columns for a single ticker and a MultiIndex for a batch,
     but which one you get also depends on the version, so branch on the frame itself
     rather than on how many tickers were requested.
     """
     if data is None or data.empty:
-        return None
+        return pd.DataFrame()
 
     if isinstance(data.columns, pd.MultiIndex):
         if ticker not in data.columns.get_level_values(0):
-            return None
+            return pd.DataFrame()
         # A MultiIndex top-level lookup returns a DataFrame cross-section at runtime,
         # but the type stubs only model a plain-Hashable key as a single-column Series.
         frame = cast(pd.DataFrame, data[ticker])
@@ -65,10 +67,9 @@ def extract_ticker_frame(data: pd.DataFrame, ticker: str) -> pd.DataFrame | None
         frame = data
 
     if 'Adj Close' not in frame.columns:
-        return None
+        return pd.DataFrame()
 
-    frame = frame.dropna(subset=['Adj Close'])
-    return frame if not frame.empty else None
+    return frame.dropna(subset=['Adj Close'])
 
 
 def records_from_frame(ticker: str, frame: pd.DataFrame) -> list[tuple]:

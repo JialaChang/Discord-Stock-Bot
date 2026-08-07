@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from pandas import Series
+
 from src.models import Signal, Position
 
 

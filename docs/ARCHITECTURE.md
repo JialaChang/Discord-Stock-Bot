@@ -153,3 +153,23 @@ yfinance → SQLite 的**寫入**路徑，由兩支回補腳本共用，統一�
 ```
 
 資料不足時 `run()` 拋出 `InsufficientDataError`，指令將其訊息原文回覆使用者。
+
+---
+
+## 測試
+
+`tests/` 以 pytest 撰寫，全程離線：資料庫為 in-memory SQLite，行情為 `conftest.py` 產生的合成 OHLCV，不呼叫 yfinance，亦不讀取本機 `stock_data.db`。執行方式見 [README](../README.md#測試)。
+
+回測執行規則的測試以 `ScriptedStrategy` 逐根 K 棒驅動引擎，使進出場時點與成交價可被精確指定，不受任何真實指標的數值影響。
+
+本文所述的設計規則各有對應測試守護，修改前可先確認會觸動哪一項：
+
+| 設計規則 | 守護測試 |
+|----------|----------|
+| 做空損益倍率以 0 為下限，且與 `return_on_investment` 一致 | `test_models.py::TestPnlRatio` / `TestTrade` |
+| 訊號於當日收盤產生、隔日開盤成交 | `test_backtest.py::TestOrderExecution` |
+| 停損以停損價成交，跳空則以開盤價成交 | `test_backtest.py::TestStopLoss` |
+| 指標暖身另行取得，不佔用回測區間 | `test_backtest.py::TestIndicatorWarmup` |
+| `needs_full_refresh` 的缺口檢查先於漂移比對 | `test_sync.py::TestNeedsFullRefresh` |
+| 僅成功寫入者蓋上回補戳記，失敗者保持待補 | `test_sync.py::TestBackfillStamps` |
+| 代碼轉大寫後查詢；還原權值回推略過不可用的列 | `test_fetcher.py` |

@@ -37,6 +37,7 @@ stock-bot/
 │   ├── seed_stocks.py           # 匯入台美股與全球指數基本清單
 │   ├── historical_backfill.py   # 回補歷史 K 線至資料庫
 │   └── daily_updater.py         # 更新每日數據至資料庫
+├── tests/            # 離線回歸測試（pytest）
 └── main.py           # 啟動入口
 ```
 
@@ -71,7 +72,7 @@ daily_prices (
 ```
 
 > **除權息調整**：查詢歷史資料時，系統以 `AdjClose / Close` 的比率回推開高低價，消除配息或股票分割造成的圖表跳空缺口。
->
+
 > **還原權值基準一致性**：Yahoo 每次除息或分割都會回頭改寫**整段歷史**的 `Adj Close`。因此 `daily_updater.py` 在寫入前會比對新舊還原收盤價，若偵測到基準改變或既有歷史的結束日早於下載區間，則將該檔股票交給 `historical_backfill.py` 重抓完整歷史。
 
 > 完整 schema 定義於 [src/database/sql/schema.sql](./src/database/sql/schema.sql)；跨模組共用的 SQL 皆以 `.sql` 檔集中於該目錄，由 `load_sql()` 載入。
@@ -127,6 +128,22 @@ python src/database/database.py  # 操作資料庫（CLI界面）
 
 > **HTML 報表**：回測完成後可選擇匯出 HTML 績效報表；資料庫查詢超過 50 筆時自動改為匯出 HTML 報表。檔案輸出至 `exports/`
 
+### 測試
+
+```bash
+uv sync --dev   # 安裝含 pytest 的開發依賴
+uv run pytest   # 執行全部測試
+```
+
+測試全程離線：以 in-memory SQLite 與合成 OHLCV 資料驗證，不呼叫 yfinance，也不依賴本機的 `stock_data.db`，因此重建資料庫不影響測試結果。
+
+| 檔案 | 涵蓋範圍 |
+|------|----------|
+| `tests/test_models.py` | 損益倍率、單筆交易報酬率、回測績效指標 |
+| `tests/test_sync.py` | 批次資料拆解、還原收盤價漂移與歷史缺口偵測、回補時間戳 |
+| `tests/test_fetcher.py` | 代碼正規化、還原權值回推、異常列處理 |
+| `tests/test_backtest.py` | 訊號隔日開盤成交、多空停損成交價、指標暖身、資料不足例外 |
+
 <div>
   <img src="./docs/backtest_html.png" height="400" alt="回測績效 HTML 報表：績效指標與逐筆交易明細">
   <img src="./docs/price_html.png" height="400" alt="歷史價格 HTML 報表：OHLCV 明細，收盤價依漲跌上色">
@@ -151,7 +168,7 @@ python src/database/database.py  # 操作資料庫（CLI界面）
 |------|-----------|------|
 | `2330` | `2330.TW` | 台積電（台股上市） |
 | `5274` | `5274.TWO` | 信驊（台股上櫃） |
-| `AAPL` | `AAPL` | 蘋果（美股） |
+| `SPCX` | `SPCX` | SpaceX 美股 |
 | `nvda` | `NVDA` | 一律轉大寫後查詢，大小寫皆可 |
 | `BRK.B` | `BRK-B` | 波克夏 B 股（Yahoo Finance 格式轉換） |
 | `^GSPC` | `^GSPC` | S&P 500 指數 |
@@ -169,7 +186,7 @@ python src/database/database.py  # 操作資料庫（CLI界面）
 
 ### 美國股票
 
-- 直接輸入代碼（`AAPL`、`TSLA`、`NVDA` 等）
+- 直接輸入代碼（`SPCX`、`AAPL`、`NVDA` 等）
 - 含小數點代碼（如 `BRK.B`）自動轉換為 Yahoo Finance 格式 `BRK-B`
 
 ### 全球主要指數

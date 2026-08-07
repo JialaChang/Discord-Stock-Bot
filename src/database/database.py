@@ -6,8 +6,8 @@ from datetime import datetime
 from functools import lru_cache
 from typing import Any
 
-logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
 
 # Absolute path to the project root
 BASE_DIR = os.path.dirname(os.path.dirname((os.path.dirname(os.path.abspath(__file__)))))

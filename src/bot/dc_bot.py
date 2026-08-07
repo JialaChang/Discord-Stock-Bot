@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import asyncio
 
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.data import StockDataFetcher
 from src.quant import compute_indicators_for_discord, BacktestEngine, RSIStrategy, EMAStrategy, PERIOD_DAYS, InsufficientDataError
@@ -27,7 +26,6 @@ if not TOKEN:
     raise ValueError("DISCORD_TOKEN not found in environment variables")
 if not GUILD:
     logger.info("GUILD_ID not found in environment variables")
-
 
 # Intents decide which gateway events the bot subscribes to; undeclared events are not pushed.
 intents = discord.Intents.default()

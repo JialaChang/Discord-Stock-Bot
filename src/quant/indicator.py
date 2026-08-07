@@ -1,6 +1,7 @@
 # pyright: reportCallIssue=false, reportPrivateImportUsage=false, reportArgumentType=false
 import pandas as pd
 import pandas_ta as pta
+
 from src.models import StockSnapshot
 from src.quant.errors import InsufficientDataError
 

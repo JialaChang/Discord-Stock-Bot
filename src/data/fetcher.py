@@ -11,10 +11,12 @@ from datetime import datetime, timedelta
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.database import DB_PATH, load_sql
 
+
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
 TW_CODES = twstock.codes
+
 
 class StockDataFetcher:
     """Stock query service that unifies three data sources: SQLite / yfinance / twstock."""
@@ -26,9 +28,6 @@ class StockDataFetcher:
 
     def _format_ticker(self, ticker: str) -> str:
         """Normalize user input into Yahoo Finance format. Lookup order: local DB -> twstock -> raw input."""
-        # Tickers are stored upper-case and SQLite's `=` is case-sensitive, so an
-        # input like "aapl" would otherwise miss every lookup and look like a
-        # non-existent stock.
         ticker = ticker.strip().upper()
         try:
             # Strip any existing suffix
@@ -107,14 +106,16 @@ class StockDataFetcher:
                 logger.info(f"No historical data for '{self.ticker}' in the database...")
             else:
                 # Back out Open/High/Low from the AdjClose/Close ratio to remove chart gaps caused by dividends and splits.
-                # Rows with a missing or non-positive close have no usable ratio, so leave them unadjusted (ratio 1.0)
+                # A row with a missing or non-positive close has no usable ratio, so it keeps its raw
+                # values throughout: adjusting only the close would put it outside its own High/Low.
                 close = self.historical_data['Close']
                 adj_close = self.historical_data['AdjClose']
-                adj_ratio = (adj_close / close.where(close > 0)).fillna(1.0)
+                usable = (close > 0) & adj_close.notna()
+                adj_ratio = (adj_close / close).where(usable, 1.0)
                 self.historical_data['Open'] = self.historical_data['Open'] * adj_ratio
                 self.historical_data['High'] = self.historical_data['High'] * adj_ratio
                 self.historical_data['Low'] = self.historical_data['Low'] * adj_ratio
-                self.historical_data['Close'] = adj_close.fillna(close)
+                self.historical_data['Close'] = adj_close.where(usable, close)
 
                 # Incomplete rows would silently poison indicators and charts downstream
                 self.historical_data = self.historical_data.dropna(subset=['Open', 'High', 'Low', 'Close'])
@@ -141,8 +142,8 @@ class StockDataFetcher:
             core_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
             data = data[core_cols]
 
-            # Remove close rows containing NaN
-            self.intraday_data = data.dropna(subset='Close')
+            # Remove rows containing NaN
+            self.intraday_data = data.dropna(subset=['Open', 'High', 'Low', 'Close'])
 
             if not self.intraday_data.empty:
                 logger.info(f"Downloaded {len(self.intraday_data)} intraday rows for '{self.ticker}'.")
