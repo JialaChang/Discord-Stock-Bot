@@ -9,6 +9,11 @@ from src.models import StockSnapshot, BacktestResult
 logger = logging.getLogger(__name__)
 
 
+def display_name(name: str, ticker: str) -> str:
+    """`name (ticker)`, or the bare ticker when no name is known."""
+    return f"{name} ({ticker})" if name != ticker else ticker
+
+
 class DiscordStockChart(View):
     """Discord UI component holding chart state; lets the user switch between the daily and intraday charts."""
     def __init__(self, stock_ticker: str, history_bytes: bytes, intraday_bytes: bytes | None):
@@ -73,10 +78,10 @@ async def send_stock_response(interaction: discord.Interaction, snapshot: StockS
     """Build the Discord Embed and send the stock analysis result to the channel."""
     color = 0xe74c3c if snapshot.change_percent > 0 else (0x2ecc71 if snapshot.change_percent < 0 else 0x676767)
 
-    embed = discord.Embed(title=f"📈 {snapshot.name} ({snapshot.ticker})", color=color)
+    embed = discord.Embed(title=f"📈 {display_name(snapshot.name, snapshot.ticker)}", color=color)
     embed.add_field(name="Price", value=f"**{snapshot.current_price:.2f}**", inline=True)
     embed.add_field(name="Change", value=f"**{snapshot.change_str}**", inline=True)
-    embed.add_field(name="RSI", value=f"**{snapshot.rsi_value:.2f}**", inline=True)
+    embed.add_field(name="RSI", value=f"**{snapshot.rsi_str}**", inline=True)
     embed.set_footer(text=f"Data time: {snapshot.latest_time_str}   |   Source: Yahoo Finance")
     embed.set_image(url="attachment://chart.png")
 
@@ -86,11 +91,11 @@ async def send_stock_response(interaction: discord.Interaction, snapshot: StockS
     view.message = msg  # Keep a Message reference for cleanup in on_timeout
 
 
-async def send_backtest_response(interaction: discord.Interaction, result: BacktestResult, strategy_label: str, chart_bytes: bytes) -> None:
+async def send_backtest_response(interaction: discord.Interaction, result: BacktestResult, stock_name: str, strategy_label: str, chart_bytes: bytes) -> None:
     """Build the Discord Embed and send the backtest result to the channel."""
     color = 0xe74c3c if result.total_return > 0 else (0x2ecc71 if result.total_return < 0 else 0x676767)
 
-    embed = discord.Embed(title=f"📊 {result.ticker} backtest result ({strategy_label})", color=color)
+    embed = discord.Embed(title=f"📊 {display_name(stock_name, result.ticker)} backtest ({strategy_label})", color=color)
     embed.add_field(name="Total return", value=f"**{result.total_return:.2f}%**", inline=True)
     embed.add_field(name="Win rate", value=f"**{result.win_rate:.2f}%**", inline=True)
     embed.add_field(name="Max drawdown", value=f"**{result.max_drawdown:.2f}%**", inline=True)

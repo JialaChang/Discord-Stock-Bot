@@ -1,10 +1,8 @@
-import sys, os
 import sqlite3
 import twstock
 import pandas as pd
 import logging
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.database import connect_db, init_database, load_sql
 
 

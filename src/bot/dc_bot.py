@@ -1,12 +1,11 @@
 import discord
 from discord.ext import commands
-import sys, os
+import os
 import logging
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import asyncio
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.data import StockDataFetcher
 from src.quant import compute_indicators_for_discord, BacktestEngine, RSIStrategy, EMAStrategy, PERIOD_DAYS, InsufficientDataError
 from src.utils import generate_history_chart, generate_intraday_chart, generate_backtest_chart
@@ -88,7 +87,7 @@ async def analyze_stock(interaction: discord.Interaction, ticker: str):
 
         chart_jobs = [asyncio.to_thread(generate_history_chart, stock_ticker, history_data)]
         if not intraday_data.empty:
-            chart_jobs.append(asyncio.to_thread(generate_intraday_chart, stock_ticker, intraday_data))
+            chart_jobs.append(asyncio.to_thread(generate_intraday_chart, stock_ticker, intraday_data, snapshot.previous_close))
         buffers = await asyncio.gather(*chart_jobs)
 
         chart_bytes = [b.getvalue() for b in buffers]
@@ -144,7 +143,7 @@ async def backtest_stock(interaction: discord.Interaction, ticker: str, strategy
         chart_bytes = chart_buffer.getvalue()
         chart_buffer.close()
 
-        await send_backtest_response(interaction, result, strategy.name, chart_bytes)
+        await send_backtest_response(interaction, result, stock_name, strategy.name, chart_bytes)
         logger.info(f"Backtest result for '{stock_ticker}' sent successfully!")
 
     except InsufficientDataError as e:

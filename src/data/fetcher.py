@@ -1,4 +1,3 @@
-import sys, os
 import yfinance as yf
 import pandas as pd
 import twstock
@@ -6,8 +5,6 @@ import pytz
 import logging
 from datetime import datetime, timedelta
 
-# Add the project root to the module search path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.database import connect_db, load_sql
 
 
@@ -32,14 +29,17 @@ class StockDataFetcher:
             # Strip any existing suffix
             base_code = ticker.split(".")[0]
 
-            # First try to find a matching full ticker in the database
+            # First try to find a matching full ticker in the database.
+            # The dash form is a candidate only: Yahoo writes a US share class as BRK-B and seed_stocks stores it that way
+            candidates = [ticker, f"{base_code}.TW", f"{base_code}.TWO"]
+            if '.' in ticker:
+                candidates.append(ticker.replace('.', '-'))
             with connect_db() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT ticker FROM stocks
-                    WHERE ticker = ? OR ticker = ? OR ticker = ?
-                    LIMIT 1
-                ''', (ticker, f"{base_code}.TW", f"{base_code}.TWO"))
+                cursor.execute(
+                    f"SELECT ticker FROM stocks WHERE ticker IN ({','.join('?' * len(candidates))}) LIMIT 1",
+                    candidates,
+                )
                 result = cursor.fetchone()
                 if result:
                     return result[0]

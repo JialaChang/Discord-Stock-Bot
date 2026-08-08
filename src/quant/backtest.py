@@ -1,10 +1,7 @@
 import math
 import pandas as pd
-import sys, os
 from datetime import date as date_type, datetime, timedelta
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.append(BASE_DIR)
 from src.models import BacktestResult, Trade, Position, Signal, Side, pnl_ratio
 from src.quant import compute_indicators, RSIStrategy, EMAStrategy, Strategy
 from src.quant.errors import InsufficientDataError
@@ -153,7 +150,7 @@ class BacktestEngine:
 
     def export_backtest_result_html(self, result: BacktestResult) -> str:
         """Write the backtest result to an HTML report and return the file path."""
-        from src.utils.html_report import html_document, html_table, fmt_num
+        from src.utils.html_report import html_document, html_table, fmt_num, write_report
 
         def signed_class(v: float) -> str:
             return 'up' if v > 0 else 'down' if v < 0 else 'flat'
@@ -192,7 +189,7 @@ class BacktestEngine:
                 signal_reason(t.exit_signal),
             ])
         trades_table = html_table(
-            ['Side', 'Return', 'P&amp;L', 'Entry Date', 'Entry', 'Entry Reason',
+            ['Side', 'Return', 'P&L', 'Entry Date', 'Entry', 'Entry Reason',
              'Exit Date', 'Exit', 'Exit Reason'],
             trade_rows,
         )
@@ -204,17 +201,11 @@ class BacktestEngine:
         index = result.equity_curve.index
         data_range = f"{index[0].strftime('%Y-%m-%d')} ~ {index[-1].strftime('%Y-%m-%d')}"
         html = html_document(
-            f'{result.ticker} backtest &mdash; {self.strategy.__class__.__name__}',
+            f'{result.ticker} backtest — {self.strategy.__class__.__name__}',
             body,
             subtitle=f"Data {data_range} · Generated {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         )
-
-        export_dir = os.path.join(BASE_DIR, 'exports')
-        os.makedirs(export_dir, exist_ok=True)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filepath = os.path.join(export_dir, f'{result.ticker}_backtest_{timestamp}.html')
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(html)
+        filepath = write_report(html, f'{result.ticker}_backtest')
 
         print(f">> Backtest report exported to: {filepath}")
         return filepath

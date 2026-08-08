@@ -1,8 +1,8 @@
-from datetime import date
+from datetime import date, datetime
 import pandas as pd
 import pytest
 
-from src.models import BacktestResult, Signal, Trade, pnl_ratio
+from src.models import BacktestResult, Signal, StockSnapshot, Trade, pnl_ratio
 
 
 HOLD = Signal("HOLD", {}, {})
@@ -17,6 +17,33 @@ def make_result(equity, trades=()):
     index = pd.bdate_range('2026-01-01', periods=len(equity))
     curve = pd.Series(equity, index=index, dtype=float)
     return BacktestResult("X", list(trades), curve, pd.DataFrame())
+
+
+def make_snapshot(current_price, previous_close, rsi_value: float | None =50.0):
+    return StockSnapshot("X", "XName", current_price, previous_close, rsi_value,
+                         datetime(2026, 1, 2, 13, 30))
+
+
+class TestStockSnapshot:
+    def test_change_is_derived_from_the_previous_close(self):
+        assert make_snapshot(110, 100).change_percent == pytest.approx(10.0)
+        assert make_snapshot(90, 100).change_percent == pytest.approx(-10.0)
+
+    @pytest.mark.parametrize("previous_close", [0, -5])
+    def test_unusable_baseline_does_not_divide_by_zero(self, previous_close):
+        # A stored close of 0 survives into the frame unadjusted, so this is reachable.
+        assert make_snapshot(110, previous_close).change_percent == 0.0
+
+    def test_change_str_direction(self):
+        assert make_snapshot(110, 100).change_str.startswith('∆')
+        assert make_snapshot(90, 100).change_str.startswith('∇')
+
+    def test_missing_rsi_reads_as_na(self):
+        # 0.00 on the Embed would read as extreme oversold.
+        assert make_snapshot(110, 100, rsi_value=None).rsi_str == "N/A"
+
+    def test_present_rsi_is_formatted(self):
+        assert make_snapshot(110, 100, rsi_value=48.246).rsi_str == "48.25"
 
 
 class TestPnlRatio:

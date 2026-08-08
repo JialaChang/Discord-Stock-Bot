@@ -6,7 +6,8 @@ from src.database import database as database_module
 from src.database import load_sql
 
 
-STOCKS = [('SPCX', 'SpaceX', 'US'), ('2330.TW', 'TSMC', 'TW'), ('5274.TWO', 'Aspeed', 'TW')]
+STOCKS = [('SPCX', 'SpaceX', 'US'), ('2330.TW', 'TSMC', 'TW'), ('5274.TWO', 'Aspeed', 'TW'),
+          ('BRK-B', 'Berkshire Hathaway B', 'US')]
 
 
 @pytest.fixture
@@ -37,12 +38,21 @@ class TestTickerNormalization:
         ('2330', '2330.TW'),       # bare TW code resolves to its listed suffix
         ('2330.TW', '2330.TW'),
         ('5274', '5274.TWO'),      # OTC codes resolve to .TWO
+        ('BRK.B', 'BRK-B'),        # Yahoo writes a US share class with a dash
+        ('brk.b', 'BRK-B'),
+        ('BRK-B', 'BRK-B'),
     ])
     def test_resolves_to_the_stored_ticker(self, stock_db, raw, expected):
         assert StockDataFetcher(raw).ticker == expected
 
     def test_unknown_ticker_is_passed_through_upper_cased(self, stock_db):
         assert StockDataFetcher('zzzz').ticker == 'ZZZZ'
+
+    @pytest.mark.parametrize("raw", ['9999.TW', '9999.TWO', '000001.SS', '399001.SZ', '7203.T', 'FOO.B'])
+    def test_an_unseeded_dotted_ticker_is_passed_through_untouched(self, stock_db, raw):
+        # A dot is far more often a market suffix than a US share class. Rewriting it to a
+        # dash on a miss would corrupt every non-US market, the seeded SS/SZ indices included.
+        assert StockDataFetcher(raw).ticker == raw
 
 
 class TestExistenceLookup:

@@ -21,15 +21,26 @@ _MARKET_COLORS = mpf.make_marketcolors(
 )
 _MPF_STYLE = mpf.make_mpf_style(marketcolors=_MARKET_COLORS, gridstyle='--')
 
+# Indicators overlay on the daily chart: column -> (color, label).
+_HISTORY_CHART_IND = {
+    'SMA_5': ("#FFA41C", '5MA'),
+    'SMA_10': ("#05B3F3", '10MA'),
+    'SMA_20': ("#A137E4", '20MA'),
+}
+
 
 def generate_history_chart(ticker: str, data: pd.DataFrame, days: int = 61) -> io.BytesIO:
-    """Generate a daily candlestick chart (with moving averages and volume) and return an in-memory PNG."""
-    plot_data = data.iloc[-days:]
+    """Generate a daily candlestick chart with indicators and volume and return an in-memory PNG."""
+    from src.quant.indicator import compute_indicators
+
+    # Averaged over the full history, then sliced
+    frame = data.copy()
+    compute_indicators(ticker, frame, list(_HISTORY_CHART_IND))
+    plot_data = frame.iloc[-days:]
 
     addplot = [
-        mpf.make_addplot(plot_data['SMA_5'], color="#FFA41C", width=1, label='5MA'),
-        mpf.make_addplot(plot_data['SMA_10'], color="#05B3F3", width=1, label='10MA'),
-        mpf.make_addplot(plot_data['SMA_20'], color="#A137E4", width=1, label='20MA')
+        mpf.make_addplot(plot_data[col], color=color, width=1, label=label)
+        for col, (color, label) in _HISTORY_CHART_IND.items()
     ]
 
     # Use an in-memory stream to avoid writing the image to disk
@@ -55,25 +66,26 @@ def generate_history_chart(ticker: str, data: pd.DataFrame, days: int = 61) -> i
     return buffer
 
 
-def generate_intraday_chart(ticker: str, data: pd.DataFrame) -> io.BytesIO:
-    """Generate an intraday line chart, colored red-up / green-down relative to the open price."""
-    open_price = data['Open'].iloc[0]
+def generate_intraday_chart(ticker: str, data: pd.DataFrame, baseline: float) -> io.BytesIO:
+    """Generate an intraday line chart, colored red-up / green-down relative to `baseline`.
 
-    above_open = data['Close'].where(data['Close'] >= open_price)
-    below_open = data['Close'].where(data['Close'] < open_price)
+    `baseline` is the previous close.
+    """
+    above = data['Close'].where(data['Close'] >= baseline)
+    below = data['Close'].where(data['Close'] < baseline)
 
-    # Dotted line at the open price as the up/down reference
-    ref_line = pd.Series(open_price, index=data.index)
+    # Dotted line at the baseline as the up/down reference
+    ref_line = pd.Series(baseline, index=data.index)
     addplot = [mpf.make_addplot(ref_line, color='#a0a0a0', linestyle='dotted', width=2)]
 
-    if above_open.notna().any():
-        addplot.append(mpf.make_addplot(above_open, color='#e74c3c', width=1))
-    if below_open.notna().any():
-        addplot.append(mpf.make_addplot(below_open, color='#2ecc71', width=1))
+    if above.notna().any():
+        addplot.append(mpf.make_addplot(above, color='#e74c3c', width=1))
+    if below.notna().any():
+        addplot.append(mpf.make_addplot(below, color='#2ecc71', width=1))
 
     fills = [
-        dict(y1=data['Close'].values, y2=open_price, where=(data['Close'] >= open_price).values, color='#e74c3c', alpha=0.1),
-        dict(y1=data['Close'].values, y2=open_price, where=(data['Close'] < open_price).values, color='#2ecc71', alpha=0.1)
+        dict(y1=data['Close'].values, y2=baseline, where=(data['Close'] >= baseline).values, color='#e74c3c', alpha=0.1),
+        dict(y1=data['Close'].values, y2=baseline, where=(data['Close'] < baseline).values, color='#2ecc71', alpha=0.1)
     ]
 
     buffer = io.BytesIO()

@@ -1,6 +1,5 @@
 import sqlite3
 import os
-import sys
 import logging
 from datetime import datetime
 from functools import lru_cache
@@ -11,8 +10,6 @@ logger = logging.getLogger(__name__)
 
 # Absolute path to the project root
 BASE_DIR = os.path.dirname(os.path.dirname((os.path.dirname(os.path.abspath(__file__)))))
-if BASE_DIR not in sys.path:
-    sys.path.append(BASE_DIR)
 
 DB_PATH = os.path.join(BASE_DIR, 'stock_data.db')
 SQL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sql')
@@ -72,12 +69,12 @@ def get_stock(ticker: str) -> dict[str, Any] | None:
         return dict(row) if row else None
 
 
-def get_daily_prices(ticker: str, days: int = 30) -> list[dict[str, Any]]:
-    """Get historical prices for the given stock."""
+def get_daily_prices(ticker: str, limit: int = 30) -> list[dict[str, Any]]:
+    """Get the `limit` most recent price rows for the given stock, newest first."""
     with connect_db() as connect:
         connect.row_factory = sqlite3.Row
         cursor = connect.cursor()
-        cursor.execute(load_sql('select_daily_prices'), (ticker, days))
+        cursor.execute(load_sql('select_daily_prices'), (ticker, limit))
         return [dict(row) for row in cursor.fetchall()]
 
 
@@ -119,10 +116,10 @@ def _menu_get_stock():
 def _menu_get_prices():
     ticker = input("Enter ticker: ").strip()
     try:
-        days = int(input("Number of records (default 10): ").strip() or "10")
+        limit = int(input("Number of records (default 10): ").strip() or "10")
     except ValueError:
-        days = 10
-    prices = get_daily_prices(ticker, days=days)
+        limit = 10
+    prices = get_daily_prices(ticker, limit=limit)
     if not prices:
         print(f"No price data found for {ticker}...")
         return
@@ -149,12 +146,7 @@ def _menu_get_prices():
 
 def _export_prices_html(ticker: str, prices: list[dict[str, Any]]):
     """Write price records to a HTML report under the project's exports/ directory."""
-    from src.utils.html_report import html_document, html_table, fmt_num, fmt_int
-
-    export_dir = os.path.join(BASE_DIR, 'exports')
-    os.makedirs(export_dir, exist_ok=True)
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filepath = os.path.join(export_dir, f'{ticker}_prices_{timestamp}.html')
+    from src.utils.html_report import html_document, html_table, fmt_num, fmt_int, write_report
 
     rows = []
     # Rows are newest-first; the previous trading day is the next row, used to color the change.
@@ -178,12 +170,11 @@ def _export_prices_html(ticker: str, prices: list[dict[str, Any]]):
     table = html_table(['Date', 'Open', 'High', 'Low', 'Close', 'AdjClose', 'Volume'], rows)
     data_range = f"{prices[-1].get('date', '?')} ~ {prices[0].get('date', '?')}"
     html = html_document(
-        f'{ticker} &mdash; {len(prices)} records',
+        f'{ticker} — {len(prices)} records',
         table,
         subtitle=f"Data {data_range} · Generated {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
     )
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(html)
+    filepath = write_report(html, f'{ticker}_prices')
 
     print(f"\n>> {len(prices)} records exported to: {filepath}")
 

@@ -1,8 +1,6 @@
-import sys, os
 import time
 import logging
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.database import connect_db
 from src.data.sync import download_ohlcv, extract_ticker_frame, records_from_frame, upsert_records, fetch_all_tickers, fetch_pending_tickers, mark_backfilled
 
