@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>2330.TW — 60 records</title>
+  <style>
+    :root {
+      color-scheme: dark light;
+      --bg: #0a0c10;
+      --surface: #0f1218;
+      --header: #151a23;
+      --zebra: rgba(255, 255, 255, .018);
+      --hover: rgba(224, 163, 62, .07);
+      --border: #232a36;
+      --grid: #1a202a;
+      --text: #ccd2dc;
+      --muted: #6b7484;
+      --accent: #e0a33e;
+      /* TW convention: red = up, green = down (opposite of Western charts) */
+      --up: #ff5265;
+      --down: #2ecc80;
+      --flat: #6b7484;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+              "DejaVu Sans Mono", "Liberation Mono", "PingFang TC",
+              "Microsoft JhengHei", monospace;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #e9ecef;
+        --surface: #ffffff;
+        --header: #f2f4f7;
+        --zebra: rgba(0, 0, 0, .015);
+        --hover: rgba(168, 106, 16, .07);
+        --border: #d3d9e0;
+        --grid: #e7eaee;
+        --text: #14181f;
+        --muted: #6a7280;
+        --accent: #a86a10;
+        --up: #cc1122;
+        --down: #0a8a4a;
+        --flat: #6a7280;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 36px 20px 64px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 1240px;
+      margin: 0 auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-top: 2px solid var(--accent);
+      border-radius: 2px;
+      padding: 22px 26px 30px;
+    }
+
+    /* --- Masthead --- */
+    h1 {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: .02em;
+      margin: 0 0 6px;
+      color: var(--text);
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 11.5px;
+      letter-spacing: .02em;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* --- Section labels --- */
+    h2 {
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .16em;
+      color: var(--accent);
+      margin: 30px 0 0;
+      padding-bottom: 7px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h2 + table { margin-top: 0; }
+
+    /* --- Tables --- */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+      font-size: 12.5px;
+    }
+
+    th, td {
+      padding: 6px 14px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th:first-child, td:first-child { text-align: left; }
+
+    /* Vertical hairlines — 1px max, kept faint so they read as a grid, not clutter */
+    th + th, td + td { border-left: 1px solid var(--grid); }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--header);
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      padding-top: 9px;
+      padding-bottom: 9px;
+      /* inset shadow instead of border: collapsed borders don't stick */
+      box-shadow: inset 0 -1px 0 var(--border), inset 0 1px 0 var(--border);
+    }
+
+    tbody td { border-bottom: 1px solid var(--grid); }
+    tbody tr:nth-child(even) { background: var(--zebra); }
+    tbody tr:hover { background: var(--hover); }
+    tbody tr:last-child td { border-bottom: none; }
+
+    /* Headerless summary tables: emphasise the label column */
+    table:not(:has(thead)) td:first-child { color: var(--muted); }
+
+    /* html_table puts these classes on the <td> itself: paint-only properties.
+       `display` / `padding` / `border` here breaks header-to-column alignment. */
+    .up   { color: var(--up);   font-weight: 700; }
+    .down { color: var(--down); font-weight: 700; }
+    .flat { color: var(--flat); }
+
+    @media (max-width: 720px) {
+      body { padding: 16px 8px 40px; font-size: 12px; }
+      .container { padding: 16px 12px 20px; }
+      h1 { font-size: 15px; }
+      th, td { padding: 5px 8px; font-size: 11px; }
+    }
+
+    @media print {
+      body { background: #fff; padding: 0; }
+      .container { border: none; max-width: none; padding: 0; }
+      thead th { position: static; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>2330.TW — 60 records</h1>
+
+    <div class="meta">Data 2026-05-15 ~ 2026-08-07 · Generated 2026-08-09 00:56:11</div>
+
+    <table>
+<thead><tr><th>Date</th><th>Open</th><th>High</th><th>Low</th><th>Close</th><th>AdjClose</th><th>Volume</th></tr></thead>
+<tbody>
+<tr><td>2026-08-07</td><td>2390.00</td><td>2395.00</td><td>2355.00</td><td class="up">2370.00</td><td>2370.00</td><td>21,959,343</td></tr>
+<tr><td>2026-08-06</td><td>2395.00</td><td>2395.00</td><td>2360.00</td><td class="down">2365.00</td><td>2365.00</td><td>22,943,128</td></tr>
+<tr><td>2026-08-05</td><td>2385.00</td><td>2415.00</td><td>2370.00</td><td class="up">2405.00</td><td>2405.00</td><td>31,905,196</td></tr>
+<tr><td>2026-08-04</td><td>2335.00</td><td>2360.00</td><td>2310.00</td><td class="down">2320.00</td><td>2320.00</td><td>35,945,450</td></tr>
+<tr><td>2026-08-03</td><td>2390.00</td><td>2395.00</td><td>2365.00</td><td class="down">2370.00</td><td>2370.00</td><td>30,005,447</td></tr>
+<tr><td>2026-07-31</td><td>2350.00</td><td>2425.00</td><td>2345.00</td><td class="up">2425.00</td><td>2425.00</td><td>57,145,894</td></tr>
+<tr><td>2026-07-30</td><td>2205.00</td><td>2260.00</td><td>2190.00</td><td class="up">2205.00</td><td>2205.00</td><td>44,446,679</td></tr>
+<tr><td>2026-07-29</td><td>2260.00</td><td>2280.00</td><td>2180.00</td><td class="down">2200.00</td><td>2200.00</td><td>55,449,661</td></tr>
+<tr><td>2026-07-28</td><td>2270.00</td><td>2305.00</td><td>2270.00</td><td class="down">2280.00</td><td>2280.00</td><td>36,576,835</td></tr>
+<tr><td>2026-07-27</td><td>2330.00</td><td>2365.00</td><td>2330.00</td><td class="flat">2350.00</td><td>2350.00</td><td>24,040,916</td></tr>
+<tr><td>2026-07-24</td><td>2355.00</td><td>2365.00</td><td>2345.00</td><td class="down">2350.00</td><td>2350.00</td><td>21,646,770</td></tr>
+<tr><td>2026-07-23</td><td>2385.00</td><td>2405.00</td><td>2370.00</td><td class="up">2405.00</td><td>2405.00</td><td>23,190,117</td></tr>
+<tr><td>2026-07-22</td><td>2440.00</td><td>2445.00</td><td>2385.00</td><td class="down">2400.00</td><td>2400.00</td><td>28,887,275</td></tr>
+<tr><td>2026-07-21</td><td>2350.00</td><td>2410.00</td><td>2345.00</td><td class="up">2410.00</td><td>2410.00</td><td>29,931,277</td></tr>
+<tr><td>2026-07-20</td><td>2300.00</td><td>2345.00</td><td>2300.00</td><td class="up">2320.00</td><td>2320.00</td><td>45,272,691</td></tr>
+<tr><td>2026-07-17</td><td>2375.00</td><td>2395.00</td><td>2290.00</td><td class="down">2290.00</td><td>2290.00</td><td>75,253,147</td></tr>
+<tr><td>2026-07-16</td><td>2430.00</td><td>2470.00</td><td>2420.00</td><td class="up">2470.00</td><td>2470.00</td><td>27,848,158</td></tr>
+<tr><td>2026-07-15</td><td>2425.00</td><td>2460.00</td><td>2415.00</td><td class="up">2440.00</td><td>2440.00</td><td>28,532,735</td></tr>
+<tr><td>2026-07-14</td><td>2410.00</td><td>2430.00</td><td>2390.00</td><td class="down">2420.00</td><td>2420.00</td><td>35,607,811</td></tr>
+<tr><td>2026-07-13</td><td>2460.00</td><td>2480.00</td><td>2440.00</td><td class="up">2440.00</td><td>2440.00</td><td>32,938,379</td></tr>
+<tr><td>2026-07-10</td><td>2415.00</td><td>2415.00</td><td>2415.00</td><td class="flat">2415.00</td><td>2415.00</td><td>0</td></tr>
+<tr><td>2026-07-09</td><td>2450.00</td><td>2460.00</td><td>2415.00</td><td class="down">2415.00</td><td>2415.00</td><td>27,134,789</td></tr>
+<tr><td>2026-07-08</td><td>2445.00</td><td>2465.00</td><td>2420.00</td><td class="up">2465.00</td><td>2465.00</td><td>23,373,702</td></tr>
+<tr><td>2026-07-07</td><td>2480.00</td><td>2500.00</td><td>2440.00</td><td class="down">2440.00</td><td>2440.00</td><td>27,867,172</td></tr>
+<tr><td>2026-07-06</td><td>2465.00</td><td>2500.00</td><td>2455.00</td><td class="up">2460.00</td><td>2460.00</td><td>19,281,603</td></tr>
+<tr><td>2026-07-03</td><td>2415.00</td><td>2465.00</td><td>2415.00</td><td class="down">2445.00</td><td>2445.00</td><td>26,489,446</td></tr>
+<tr><td>2026-07-02</td><td>2450.00</td><td>2480.00</td><td>2445.00</td><td class="down">2465.00</td><td>2465.00</td><td>27,485,121</td></tr>
+<tr><td>2026-07-01</td><td>2495.00</td><td>2505.00</td><td>2475.00</td><td class="up">2505.00</td><td>2505.00</td><td>30,489,002</td></tr>
+<tr><td>2026-06-30</td><td>2440.00</td><td>2475.00</td><td>2410.00</td><td class="up">2410.00</td><td>2410.00</td><td>42,933,128</td></tr>
+<tr><td>2026-06-29</td><td>2330.00</td><td>2395.00</td><td>2330.00</td><td class="up">2370.00</td><td>2370.00</td><td>33,267,315</td></tr>
+<tr><td>2026-06-26</td><td>2360.00</td><td>2370.00</td><td>2325.00</td><td class="down">2340.00</td><td>2340.00</td><td>39,547,254</td></tr>
+<tr><td>2026-06-25</td><td>2410.00</td><td>2420.00</td><td>2390.00</td><td class="flat">2390.00</td><td>2390.00</td><td>34,424,468</td></tr>
+<tr><td>2026-06-24</td><td>2435.00</td><td>2445.00</td><td>2390.00</td><td class="down">2390.00</td><td>2390.00</td><td>55,667,954</td></tr>
+<tr><td>2026-06-23</td><td>2510.00</td><td>2535.00</td><td>2490.00</td><td class="down">2490.00</td><td>2490.00</td><td>34,264,856</td></tr>
+<tr><td>2026-06-22</td><td>2455.00</td><td>2510.00</td><td>2455.00</td><td class="up">2510.00</td><td>2510.00</td><td>39,272,494</td></tr>
+<tr><td>2026-06-18</td><td>2395.00</td><td>2415.00</td><td>2385.00</td><td class="up">2410.00</td><td>2410.00</td><td>46,429,815</td></tr>
+<tr><td>2026-06-17</td><td>2355.00</td><td>2385.00</td><td>2350.00</td><td class="down">2385.00</td><td>2385.00</td><td>25,510,076</td></tr>
+<tr><td>2026-06-16</td><td>2375.00</td><td>2400.00</td><td>2350.00</td><td class="up">2400.00</td><td>2400.00</td><td>29,594,351</td></tr>
+<tr><td>2026-06-15</td><td>2360.00</td><td>2375.00</td><td>2345.00</td><td class="up">2375.00</td><td>2375.00</td><td>25,573,718</td></tr>
+<tr><td>2026-06-12</td><td>2325.00</td><td>2325.00</td><td>2290.00</td><td class="up">2310.00</td><td>2310.00</td><td>21,560,608</td></tr>
+<tr><td>2026-06-11</td><td>2240.00</td><td>2260.00</td><td>2210.00</td><td class="down">2250.00</td><td>2250.00</td><td>34,790,220</td></tr>
+<tr><td>2026-06-10</td><td>2285.00</td><td>2300.00</td><td>2255.00</td><td class="down">2255.00</td><td>2249.00</td><td>42,608,467</td></tr>
+<tr><td>2026-06-09</td><td>2305.00</td><td>2320.00</td><td>2295.00</td><td class="up">2305.00</td><td>2298.87</td><td>33,252,041</td></tr>
+<tr><td>2026-06-08</td><td>2230.00</td><td>2320.00</td><td>2230.00</td><td class="down">2295.00</td><td>2288.89</td><td>44,721,632</td></tr>
+<tr><td>2026-06-05</td><td>2395.00</td><td>2405.00</td><td>2350.00</td><td class="down">2365.00</td><td>2358.71</td><td>32,795,780</td></tr>
+<tr><td>2026-06-04</td><td>2385.00</td><td>2415.00</td><td>2385.00</td><td class="down">2385.00</td><td>2378.65</td><td>25,054,494</td></tr>
+<tr><td>2026-06-03</td><td>2425.00</td><td>2440.00</td><td>2410.00</td><td class="up">2425.00</td><td>2418.55</td><td>22,536,554</td></tr>
+<tr><td>2026-06-02</td><td>2390.00</td><td>2400.00</td><td>2360.00</td><td class="up">2380.00</td><td>2373.67</td><td>29,610,654</td></tr>
+<tr><td>2026-06-01</td><td>2355.00</td><td>2415.00</td><td>2350.00</td><td class="flat">2355.00</td><td>2348.73</td><td>35,023,445</td></tr>
+<tr><td>2026-05-29</td><td>2340.00</td><td>2375.00</td><td>2330.00</td><td class="up">2355.00</td><td>2348.73</td><td>86,132,863</td></tr>
+<tr><td>2026-05-28</td><td>2350.00</td><td>2360.00</td><td>2270.00</td><td class="down">2295.00</td><td>2288.89</td><td>36,889,432</td></tr>
+<tr><td>2026-05-27</td><td>2310.00</td><td>2330.00</td><td>2290.00</td><td class="up">2300.00</td><td>2293.88</td><td>31,986,652</td></tr>
+<tr><td>2026-05-26</td><td>2320.00</td><td>2325.00</td><td>2270.00</td><td class="down">2270.00</td><td>2263.96</td><td>22,586,387</td></tr>
+<tr><td>2026-05-25</td><td>2275.00</td><td>2310.00</td><td>2275.00</td><td class="up">2310.00</td><td>2303.85</td><td>25,215,869</td></tr>
+<tr><td>2026-05-22</td><td>2245.00</td><td>2260.00</td><td>2225.00</td><td class="up">2255.00</td><td>2249.00</td><td>24,437,825</td></tr>
+<tr><td>2026-05-21</td><td>2240.00</td><td>2255.00</td><td>2230.00</td><td class="up">2230.00</td><td>2224.07</td><td>22,964,974</td></tr>
+<tr><td>2026-05-20</td><td>2205.00</td><td>2210.00</td><td>2185.00</td><td class="down">2185.00</td><td>2179.19</td><td>29,320,253</td></tr>
+<tr><td>2026-05-19</td><td>2220.00</td><td>2230.00</td><td>2205.00</td><td class="down">2205.00</td><td>2199.13</td><td>34,824,449</td></tr>
+<tr><td>2026-05-18</td><td>2225.00</td><td>2260.00</td><td>2215.00</td><td class="down">2240.00</td><td>2234.04</td><td>25,875,079</td></tr>
+<tr><td>2026-05-15</td><td>2310.00</td><td>2325.00</td><td>2250.00</td><td class="flat">2265.00</td><td>2258.97</td><td>29,922,154</td></tr>
+</tbody>
+</table>
+  </div>
+</body>
+
+</html>

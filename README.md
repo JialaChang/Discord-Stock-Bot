@@ -16,8 +16,8 @@
   
   [![邀請機器人](https://img.shields.io/badge/邀請機器人到伺服器-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com/oauth2/authorize?client_id=1494994206425612399)
   
-  <img src="./docs/stock.png" height="300" alt="">
-  <img src="./docs/backtest.png" height="300" alt="">
+  <img src="./docs/dc_stock.png" height="300" alt="">
+  <img src="./docs/dc_backtest.png" height="300" alt="">
 </div>
 
 ---
@@ -37,11 +37,13 @@ stock-bot/
 │   ├── seed_stocks.py           # 匯入台美股與全球指數基本清單
 │   ├── historical_backfill.py   # 回補歷史 K 線至資料庫
 │   └── daily_updater.py         # 更新每日數據至資料庫
+├── docs/
+│   └── samples/      # README 連結的 HTML 報表範例與其產生器
 ├── tests/            # 離線回歸測試（pytest）
-└── main.py           # 啟動入口
+└── main.py           # 全域 logging 格式設定
 ```
 
-各模組職責請見 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)，完整類別關聯與方法簽章請見 [docs/UML.md](./docs/UML.md)
+模組職責、方法簽章與指令資料流請見 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)，模組相依關係請見 [docs/UML.md](./docs/UML.md)
 
 ---
 
@@ -89,12 +91,16 @@ daily_prices (
 ### 安裝
 
 ```bash
-# 安裝依賴
+# 安裝依賴，並將本專案以可編輯模式裝入虛擬環境
 uv sync
 
 # 建立 .env（參考下方欄位說明）
 cp .env.example .env
 ```
+
+`uv sync` 會一併安裝本專案本身，`src` 因此位於匯入路徑上，所有入口均可在任意工作目錄執行，無須任何 `sys.path` 操作。若出現 `ModuleNotFoundError: src`，重跑 `uv sync` 即可。
+
+唯一的例外是 `.env`：其位置以工作目錄解析，故機器人需自專案根目錄啟動。
 
 `.env` 變數欄位：
 
@@ -139,15 +145,19 @@ uv run pytest   # 執行全部測試
 
 | 檔案 | 涵蓋範圍 |
 |------|----------|
-| `tests/test_models.py` | 損益倍率、單筆交易報酬率、回測績效指標 |
+| `tests/test_models.py` | 損益倍率、單筆交易報酬率、回測績效指標、快照漲跌幅與指標缺值顯示 |
 | `tests/test_sync.py` | 批次資料拆解、還原收盤價漂移與歷史缺口偵測、回補時間戳 |
-| `tests/test_fetcher.py` | 代碼正規化、還原權值回推、異常列處理 |
+| `tests/test_fetcher.py` | 代碼正規化（含 `.TW` / `.TWO` / dash 形式）、還原權值回推、異常列處理 |
 | `tests/test_backtest.py` | 訊號隔日開盤成交、多空停損成交價、指標暖身、資料不足例外 |
+| `tests/test_html_report.py` | 報表逃脫、匯出檔名過濾、數值格式化 |
+| `tests/test_bot_view.py` | Embed 標題組裝 |
 
-<div>
-  <img src="./docs/backtest_html.png" height="400" alt="回測績效 HTML 報表：績效指標與逐筆交易明細">
-  <img src="./docs/price_html.png" height="400" alt="歷史價格 HTML 報表：OHLCV 明細，收盤價依漲跌上色">
-</div>
+HTML 報表範例（台積電實際資料，可直接開啟檢視）：
+
+- [回測績效報表](https://htmlpreview.github.io/?https://raw.githubusercontent.com/JialaChang/Stock-Bot/main/docs/samples/backtest.html) — 績效指標與逐筆交易明細
+- [歷史價格報表](https://htmlpreview.github.io/?https://raw.githubusercontent.com/JialaChang/Stock-Bot/main/docs/samples/prices.html) — OHLCV 明細，收盤價依漲跌上色
+
+> 兩份範例由 `docs/samples/generate.py` 產生：從 yfinance 下載真實行情後，呼叫與正式流程相同的匯出函式，因此不會與程式行為脫節。
 
 ---
 
@@ -170,7 +180,7 @@ uv run pytest   # 執行全部測試
 | `5274` | `5274.TWO` | 信驊（台股上櫃） |
 | `SPCX` | `SPCX` | SpaceX 美股 |
 | `nvda` | `NVDA` | 一律轉大寫後查詢，大小寫皆可 |
-| `BRK.B` | `BRK-B` | 波克夏 B 股（Yahoo Finance 格式轉換） |
+| `BRK.B` | `BRK-B` | 波克夏 B 股，比對出清單中的 Yahoo 格式 |
 | `^GSPC` | `^GSPC` | S&P 500 指數 |
 
 > 各指令的內部資料流與模組職責請見 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
@@ -187,7 +197,7 @@ uv run pytest   # 執行全部測試
 ### 美國股票
 
 - 直接輸入代碼（`SPCX`、`AAPL`、`NVDA` 等）
-- 含小數點代碼（如 `BRK.B`）自動轉換為 Yahoo Finance 格式 `BRK-B`
+- 股別代碼（如 `BRK.B`）以 Yahoo Finance 格式 `BRK-B` 收錄，兩種寫法皆可查詢
 
 ### 全球主要指數
 

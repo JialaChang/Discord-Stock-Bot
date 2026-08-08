@@ -1,178 +1,228 @@
 # 架構與模組說明
 
-各模組職責與 Discord 指令資料流。完整類別關聯見 [UML.md](./UML.md)。
+各模組職責、關鍵設計規則與 Discord 指令資料流。模組相依關係見 [UML.md](./UML.md)，安裝與執行見 [README](../README.md)。
 
 ---
 
-## 模組說明
+## 資料層
 
 ### `StockDataFetcher` (`src/data/fetcher.py`)
 
-整合三個資料源的**讀取**門面：
-- **SQLite**：歷史日線與股票名稱
-- **yfinance**：當日 1 分鐘盤中資料
-- **twstock**：台股代碼與市場別（上市 / 上櫃）對照
+**讀取**門面，整合三個資料源：SQLite（歷史日線、股票名稱）、yfinance（當日 1 分鐘盤中）、twstock（台股市場別對照）。
 
-代碼正規化：輸入先轉大寫再解析 `.TW` / `.TWO` 後綴。
+`_format_ticker` 的解析順序為資料庫 → twstock → 原輸入。輸入先轉大寫，因 SQLite 的 `=` 區分大小寫。資料庫查詢候選包含原字串、`.TW`、`.TWO`，以及點號改為連字號的形式。
 
-還原權值回推時，若收盤價缺值或非正數則保持原值不調整，避免產生 inf / NaN。
+> **dash 形式僅為查詢候選，不作為回傳值。** Yahoo 將美股股別寫作 `BRK-B`，`seed_stocks` 亦以該形式收錄，故比對得到即回傳收錄值。
+
+`fetch_historical_data` 讀出後即以 `AdjClose / Close` 比率回推 OHLC，消除配息與分割造成的跳空。收盤價缺值或非正數的列無可用比率，全列保持原值 —— 僅調整收盤會使其落在自身高低點之外。
 
 ### `sync.py` (`src/data/sync.py`)
 
-yfinance → SQLite 的**寫入**路徑，由兩支回補腳本共用，統一批次資料的拆解與寫入方式：
+yfinance → SQLite 的**寫入**路徑，由兩支回補腳本共用，統一批次資料的拆解與寫入方式。
 
 | 函式 | 說明 |
 |------|------|
-| `download_ohlcv(tickers, period)` | 批次下載，失敗回傳空 DataFrame 而不中斷後續批次 |
+| `download_ohlcv(tickers, period)` | 批次下載；失敗回傳空 DataFrame，不中斷後續批次 |
 | `extract_ticker_frame(data, ticker)` | 依欄位是否為 MultiIndex 判斷拆法 |
-| `records_from_frame` / `upsert_records` | 轉成參數 tuple 並批次 upsert |
-| `fetch_all_tickers` / `fetch_pending_tickers(max_age_days)` | 全部股票／尚未回補或戳記過期的股票 |
-| `mark_backfilled(conn, tickers)` | 蓋上回補時間戳，僅限成功寫入者 |
-| `needs_full_refresh(conn, ticker, frame)` | 判斷此檔是否需要重抓完整歷史（見下） |
+| `records_from_frame` / `upsert_records` | 轉為參數 tuple 並批次 upsert |
+| `fetch_all_tickers` / `fetch_pending_tickers(max_age_days)` | 全部股票／未回補或戳記過期者 |
+| `mark_backfilled(conn, tickers)` | 蓋上回補戳記，僅限成功寫入者 |
+| `needs_full_refresh(conn, ticker, frame)` | 判斷是否須重抓完整歷史 |
 
 **`needs_full_refresh` 的兩種情境**：
 
-1. **還原收盤價遭改寫**：Yahoo 每逢除息或分割會回溯改寫整段歷史的 `Adj Close`。下載區間內的列由 upsert 修正，其餘較舊的列仍留存於舊基準。
-2. **歷史存在缺口**：更新腳本停擺超過下載區間長度時，期間資料未被取得。
+1. **還原收盤價遭改寫** —— Yahoo 每逢除息或分割會回溯改寫整段歷史的 `Adj Close`。下載區間內的列由 upsert 修正，其餘較舊的列仍留在舊基準。
+2. **歷史存在缺口** —— 更新腳本停擺超過下載區間長度時，期間資料未被取得。
 
-兩項檢查具先後順序：缺口檢查須先於漂移比對執行。下載區間與既有資料無日期重疊時，漂移比對缺乏可資比對的基準，而該情形正對應歷史最可能過期的狀況。
+> 兩項檢查有先後：缺口檢查須先於漂移比對。下載區間與既有資料無日期重疊時，漂移比對缺乏比對基準，而該情形正對應歷史最可能過期的狀況。
+>
+> 呼叫時機亦有先後：`needs_full_refresh` 必須在 upsert **之前**，否則寫入會覆蓋掉待比對的值。
 
-### `compute_indicators` / `compute_indicators_for_discord` (`src/quant/indicator.py`)
+### 排程腳本 (`scripts/`)
 
-刻意分離的兩個函式，對應不同情境：
+| 腳本 | 職責 |
+|------|------|
+| `seed_stocks.py` | 寫入台股、美股與全球指數清單；美股代碼寫入時將 `.` 換為 `-` |
+| `historical_backfill.py` | 回補歷史 K 線；`force=True` 忽略回補戳記 |
+| `daily_updater.py` | 更新每日行情，並回傳須重取完整歷史的股票清單 |
+
+---
+
+## 儲存層
+
+### `database.py` + `sql/` (`src/database/`)
+
+底層 SQLite CRUD，SQL 語句集中管理。
+
+| 元件 | 說明 |
+|------|------|
+| `sql/*.sql` | 多行或跨模組共用的 SQL（單行的留在 Python 內） |
+| `load_sql(name)` | 讀取 `sql/<name>.sql`，`lru_cache` 快取 |
+| `connect_db()` | 開啟連線並設定 `PRAGMA foreign_keys = ON` |
+| `get_daily_prices(ticker, limit)` | 取最近 `limit` **列** |
+
+> **所有連線一律經由 `connect_db()` 取得。** `PRAGMA foreign_keys` 屬連線層級而非資料庫屬性，`schema.sql` 宣告的外鍵在未設定該 pragma 的連線上不生效，此類連線會靜默接受孤兒 `daily_prices` 列。
+
+### 資料表約束
+
+- `stocks.last_backfilled`：回補戳記。`upsert_stock` 僅更新 `name` / `market`，重新 seed 不會清除戳記。
+- `daily_prices` 的 `UNIQUE(ticker, date)`：`ON CONFLICT(ticker, date)` 的前提。
+- upsert 採 `ON CONFLICT ... DO UPDATE` 而非 `INSERT OR REPLACE`，以保留自增 `id` 並避免外鍵連鎖刪除。
+
+---
+
+## 分析層
+
+### `indicator.py` (`src/quant/indicator.py`)
+
+刻意分離的兩個函式：
 
 | 函式 | 用途 | 回傳 |
 |------|------|------|
 | `compute_indicators(ticker, data, columns)` | 回測用：依 `columns` 原地寫入指標，`None` 代表全算 | `None` |
-| `compute_indicators_for_discord()` | Discord 用：算 Embed 所需指標與現價漲跌幅 | `StockSnapshot` |
+| `compute_indicators_for_discord(...)` | Discord 用：算 Embed 所需指標與前收基準 | `StockSnapshot` |
 
-### `visualizer.py` (`src/utils/visualizer.py`)
-
-生成 in-memory PNG：
-- `generate_history_chart`：日線 K 線 + MA5/10/20 + 成交量
-- `generate_intraday_chart`：盤中折線，以開盤價為界紅漲綠跌
-- `generate_backtest_chart`：K 線 + 多空進出場標記 + 權益曲線
-
-### `html_report.py` (`src/utils/html_report.py`)
-
-共用 HTML 報表層，讓呼叫端只提供資料、不寫任何 HTML 標籤：
-
-| 元件 | 說明 |
-|------|------|
-| `templates/report.html` | 靜態頁面外殼 + CSS，以 `$title` / `$meta` / `$body` 佔位符注入 |
-| `html_document(title, body, subtitle)` | 以 `string.Template` 將內容注入模板 |
-| `html_table(headers, rows)` | 由資料建表；儲存格為純文字或 `(文字, CSS class)` tuple 上色 |
-| `fmt_num` / `fmt_int` | 數字格式化，`None` 顯示 `N/A` |
-
-使用者：`database.py`（股票價格報表）、`BacktestEngine`（回測績效報表）。報表輸出至 `exports/`。
-
-### `database.py` + `sql/` (`src/database/`)
-
-底層 SQLite CRUD，SQL 語句集中管理：
-
-| 元件 | 說明 |
-|------|------|
-| `sql/*.sql` | 多行或跨模組共用的 SQL：`schema`、`upsert_stock`、`upsert_daily_price`、`select_daily_prices`、`select_historical_prices` |
-| `load_sql(name)` | 讀取 `sql/<name>.sql`（`lru_cache` 快取），自 `src.database` 匯出 |
-| `connect_db()` | 開啟資料庫連線並設定 `PRAGMA foreign_keys = ON`，自 `src.database` 匯出 |
-
-**所有連線一律經由 `connect_db()` 取得，不直接呼叫 `sqlite3.connect()`。** `PRAGMA foreign_keys` 屬連線層級而非資料庫屬性，`schema.sql` 宣告的外鍵在未設定該 pragma 的連線上不生效，此類連線會靜默接受孤兒 `daily_prices` 列。
-
-### `dc_bot_view.py` (`src/bot/dc_bot_view.py`)
-
-- `DiscordStockChart`：持有圖表 bytes 的 `View`，按鈕切換日線 / 分時圖，逾時 5 分鐘清理
-- `send_stock_response`：股票資訊 Embed + 可切換圖表 View
-- `send_backtest_response`：回測績效 Embed（報酬率／勝率／最大回撤／交易次數）+ 回測圖
-
-### `BacktestEngine` (`src/quant/backtest.py`)
-
-逐日迭代 OHLCV 的回測引擎，與策略解耦（初始化時注入 `Strategy`）：
-- 只計算並 `dropna` 策略宣告的 `required_columns`
-- **pending signal**：訊號於當日收盤產生，隔日開盤成交
-- 以 `cumulative_multiplier` 累積收益倍率，支援做多 / 做空
-- 結束時未平倉部位以最後一日收盤強制平倉，回傳 `BacktestResult`
-- `export_backtest_result_html()`：匯出 HTML 績效報表
-
-**指標暖身資料另行取得，不佔用回測區間**：呼叫端依 `required_history_days(period_days)` 決定取得天數，並將 `start` 傳入 `run()`，待指標計算完成後才截去暖身區段。若僅取得使用者指定的區間，短週期回測的可用列數將被暖身消耗殆盡。資料量不足時拋出 `InsufficientDataError`（`src/quant/errors.py`）。
-
-`PERIOD_DAYS` 為回測區間長度的**唯一定義來源**，Discord 指令僅引用其部分 key，不另行定義天數。
-
-```
-每日迴圈：
-  1. 執行昨日 pending signal → 今日開盤成交
-  2. 盤中止損（當日即時，跳空則以開盤價成交）
-  3. 以今日收盤記錄 equity
-  4. 依今日收盤產生明日 pending signal
-```
+後者不在 `history_data` 留下任何欄位。圖表所需疊圖由圖表層自行計算，兩者間因此無隱含呼叫順序。
 
 ### `Strategy` (`src/quant/strategy.py`)
 
-抽象基底，子類實作 `signal()` 並宣告 `required_columns` 與 `warmup`：
+抽象基底，子類實作 `signal()` 並宣告 `required_columns` 與 `warmup`。
 
 | 類別 | `required_columns` | `warmup` | 策略 |
 |------|--------------------|----------|------|
 | `RSIStrategy` | `["RSI"]` | 14 | RSI 超買 / 超賣 |
-| `EMAStrategy` | `["EMA_5", "EMA_20"]` | 20 | EMA5/20 黃金 / 死亡交叉 |
+| `EMAStrategy` | `["EMA_5", "EMA_20"]` | 20 | EMA5/20 交叉 |
+
+### `BacktestEngine` (`src/quant/backtest.py`)
+
+逐日迭代 OHLCV，與策略解耦（初始化時注入 `Strategy`），亦與資料來源解耦 —— 引擎不接觸 `StockDataFetcher`，`run()` 接收呼叫端備妥的 DataFrame。
+
+```
+每日迴圈：
+  1. 執行昨日 pending signal → 今日開盤成交
+  2. 盤中停損（當日即時，跳空則以開盤價成交）
+  3. 以今日收盤記錄 equity
+  4. 依今日收盤產生明日 pending signal
+```
+
+- 只計算並 `dropna` 策略宣告的 `required_columns`
+- 以 `cumulative_multiplier` 累積收益倍率，支援做多 / 做空
+- 結束時未平倉部位以最後一日收盤強制平倉
+
+> **指標暖身另行取得，不佔用回測區間。** 呼叫端依 `required_history_days(period_days)` 決定取得天數並將 `start` 傳入 `run()`，待指標計算完成後才截去暖身段。若僅取得使用者指定的區間，短週期回測的可用列數將被暖身消耗殆盡。資料不足時拋出 `InsufficientDataError`，其訊息會原文回覆使用者，故須寫明處置方式。
+
+`PERIOD_DAYS` 為回測區間長度的**唯一定義來源**；Discord 指令僅引用其部分 key，不另行定義天數。
 
 ### `Signal` / `Position` / `Trade` / `BacktestResult` (`src/models/trade.py`)
 
 | 類別 | 說明 |
 |------|------|
-| `Signal` | 策略訊號：`action`、`conditions`、觸發時 `values` |
-| `Position` | 進場快照（日期／價格／方向）；`unrealized_pnl_ratio()` 回傳浮動損益倍率 |
-| `Trade` | 單筆交易；屬性 `profit_and_loss`、`return_on_investment`、`is_profit` |
-| `BacktestResult` | 回測彙總（`trades`／`equity_curve`／`data`）；屬性 `total_return`、`win_rate`、`max_drawdown`、`trade_count` |
+| `Signal` | 策略訊號：`action`、`conditions`、觸發時 `values`。報表由 `conditions` 的真值鍵導出進出場原因 |
+| `Position` | 進場快照；`unrealized_pnl_ratio()` 回傳浮動損益倍率 |
+| `Trade` | 單筆交易；`profit_and_loss`、`return_on_investment`、`is_profit` |
+| `BacktestResult` | 回測彙總；`total_return`、`win_rate`、`max_drawdown`、`trade_count` |
 
-損益倍率一律由 `pnl_ratio(side, entry_price, exit_price)` 計算，做空以 0 為下限。未設下限時，`2 - exit/entry` 於股價漲逾一倍後轉為負值，並反轉其後每次複利的正負號，導致權益曲線失真且不易察覺。`Trade.return_on_investment` 由同一函式導出，確保報表與權益曲線一致。
+> **損益倍率一律由 `pnl_ratio(side, entry_price, exit_price)` 計算，做空以 0 為下限。** 未設下限時，`2 - exit/entry` 於股價漲逾一倍後轉為負值，並反轉其後每次複利的正負號，導致權益曲線失真且不易察覺。`Trade.return_on_investment` 由同一函式導出，確保報表與權益曲線一致。
+
+---
+
+## 呈現層
+
+### `StockSnapshot` (`src/models/stock.py`)
+
+Embed 所需的最小快照。`previous_close` 亦供盤中圖著色使用。`rsi_value` 為 `None` 時 `rsi_str` 顯示 `N/A`。
+
+### `visualizer.py` (`src/utils/visualizer.py`)
+
+生成 in-memory PNG，使用 `Agg` backend。
+
+| 函式 | 說明 |
+|------|------|
+| `generate_history_chart` | 日線 K 線 + MA5/10/20 + 成交量 |
+| `generate_intraday_chart` | 盤中折線，以 `baseline` 為界紅漲綠跌 |
+| `generate_backtest_chart` | K 線 + 多空進出場標記 + 權益曲線 |
+
+- 均線由本模組自行計算，先算全歷史再切片 —— 反序會使最長均線在圖左緣缺值。
+- `baseline`（前收）為必填參數，台股慣例以前收為準。
+
+> **配色慣例：紅漲綠跌**（台股慣例）。
+
+### `dc_bot_view.py` (`src/bot/dc_bot_view.py`)
+
+- `DiscordStockChart`：持有圖表 bytes 的 `View`，按鈕切換日線 / 分時，逾時 5 分鐘清理
+- `send_stock_response` / `send_backtest_response`：組裝 Embed
+
+兩者標題均由 `display_name(name, ticker)` 組裝為 `name (ticker)`。`fetch_stock_name()` 查無名稱時回傳代碼本身，此時只顯示代碼不重複括號。
+
+### `html_report.py` (`src/utils/html_report.py`)
+
+共用 HTML 報表層，呼叫端只提供資料、不寫任何標籤。使用者為 `database.py`（價格報表）與 `BacktestEngine`（績效報表）。
+
+| 元件 | 說明 |
+|------|------|
+| `templates/report.html` | 靜態外殼 + CSS，以 `$title` / `$meta` / `$body` 注入 |
+| `html_document(title, body, subtitle)` | 注入模板 |
+| `html_table(headers, rows)` | 由資料建表；儲存格為純文字或 `(文字, CSS class)` tuple |
+| `fmt_num` / `fmt_int` | 數值格式化，`None` 顯示 `N/A` |
+| `write_report(html_text, name)` | 寫入 `exports/<name>_<時間戳>.html`，回傳路徑 |
+
+> **逃脫由本層負責。** `html_table` 的表頭與儲存格、`html_document` 的 `title` 與 `subtitle` 均經 `html.escape`，`body` 是唯一以原始 HTML 處理的參數，其來源應為 `html_table`。
+>
+> **`write_report` 是組裝匯出路徑的唯一位置。** 檔名以白名單 `[^A-Za-z0-9._-]` 過濾並剝除開頭點號，代碼因而無法將輸出導向 `exports/` 之外。
 
 ---
 
 ## Discord 指令資料流
 
+所有阻塞呼叫（SQLite、yfinance、指標計算、繪圖）均以 `asyncio.to_thread` 卸載，彼此獨立者以 `asyncio.gather` 併發。
+
 ### `/stock`
 
 ```
 使用者輸入 ticker
-    → StockDataFetcher._format_ticker()   # 轉大寫、補齊 .TW / .TWO 後綴（在執行緒中）
-    → asyncio.gather()                    # 並發：SQLite 歷史 + yfinance 盤中
-    → compute_indicators_for_discord()    # RSI(14)、MA5/10/20、漲跌幅 → StockSnapshot
-    → asyncio.gather()                    # 並發：歷史 K 線圖 +（有分時資料才畫）分時圖
-    → send_stock_response()               # 組裝 Embed 送出
-    → DiscordStockChart View              # Embed + 可切換按鈕（5 分鐘逾時）
+    → StockDataFetcher._format_ticker()   # 代碼正規化
+    → gather()                            # 併發：SQLite 歷史 + yfinance 盤中
+    → compute_indicators_for_discord()    # RSI(14)、前收基準 → StockSnapshot
+    → gather()                            # 併發：日線圖 +（有盤中資料才畫）分時圖
+    → send_stock_response()               # Embed + 可切換 View（5 分鐘逾時）
 ```
 
-僅歷史資料為空時視為查詢失敗；無分時資料時仍正常回覆，切換按鈕則停用並標示無法使用。
+僅歷史資料為空視為查詢失敗。無盤中資料時仍正常回覆，切換按鈕停用並標示無法使用。
 
 ### `/backtest`
 
 ```
 使用者輸入 ticker、strategy、period
-    → PERIOD_DAYS[period]                             # 區間長度的唯一來源
+    → PERIOD_DAYS[period]                             # 區間長度唯一來源
     → engine.required_history_days(period_days)       # 區間 + 指標暖身
-    → StockDataFetcher.fetch_historical_data(days)    # 歷史 OHLCV
-    → BacktestEngine.run(ticker, data, start)         # 算完指標後切掉暖身段 → BacktestResult
-    → generate_backtest_chart()                       # K 線 + 進出場標記 + 權益曲線
-    → send_backtest_response()                        # 績效 Embed 附圖送出
+    → StockDataFetcher.fetch_historical_data(days)
+    → BacktestEngine.run(ticker, data, start)         # 算完指標後截去暖身段
+    → generate_backtest_chart()
+    → send_backtest_response()
 ```
 
-資料不足時 `run()` 拋出 `InsufficientDataError`，指令將其訊息原文回覆使用者。
+資料不足時 `run()` 拋出 `InsufficientDataError`，指令將其訊息原文回覆。
 
 ---
 
 ## 測試
 
-`tests/` 以 pytest 撰寫，全程離線：資料庫為 in-memory SQLite，行情為 `conftest.py` 產生的合成 OHLCV，不呼叫 yfinance，亦不讀取本機 `stock_data.db`。執行方式見 [README](../README.md#測試)。
+`tests/` 全程離線：資料庫為 in-memory SQLite，行情為 `conftest.py` 產生的合成 OHLCV，不呼叫 yfinance，亦不讀取本機 `stock_data.db`。執行方式見 [README](../README.md#測試)。
 
-回測執行規則的測試以 `ScriptedStrategy` 逐根 K 棒驅動引擎，使進出場時點與成交價可被精確指定，不受任何真實指標的數值影響。
+回測執行規則以 `ScriptedStrategy` 逐根 K 棒驅動引擎，使進出場時點與成交價可精確指定，不受任何真實指標數值影響。
 
-本文所述的設計規則各有對應測試守護，修改前可先確認會觸動哪一項：
+本文所述設計規則各有對應測試守護：
 
 | 設計規則 | 守護測試 |
 |----------|----------|
 | 做空損益倍率以 0 為下限，且與 `return_on_investment` 一致 | `test_models.py::TestPnlRatio` / `TestTrade` |
+| 漲跌幅由前收導出；RSI 缺值顯示 `N/A` | `test_models.py::TestStockSnapshot` |
 | 訊號於當日收盤產生、隔日開盤成交 | `test_backtest.py::TestOrderExecution` |
 | 停損以停損價成交，跳空則以開盤價成交 | `test_backtest.py::TestStopLoss` |
 | 指標暖身另行取得，不佔用回測區間 | `test_backtest.py::TestIndicatorWarmup` |
 | `needs_full_refresh` 的缺口檢查先於漂移比對 | `test_sync.py::TestNeedsFullRefresh` |
-| 僅成功寫入者蓋上回補戳記，失敗者保持待補 | `test_sync.py::TestBackfillStamps` |
-| 代碼轉大寫後查詢；還原權值回推略過不可用的列 | `test_fetcher.py` |
+| 僅成功寫入者蓋上回補戳記 | `test_sync.py::TestBackfillStamps` |
+| 代碼正規化；未收錄的帶點代碼原樣送出 | `test_fetcher.py::TestTickerNormalization` |
+| 還原權值回推略過不可用的列 | `test_fetcher.py::TestAdjustedPriceReconstruction` |
+| 報表逃脫；匯出檔名無法脫離 `exports/` | `test_html_report.py` |
+| 標題組裝；無名稱時不重複顯示代碼 | `test_bot_view.py::TestDisplayName` |
