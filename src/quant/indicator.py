@@ -56,7 +56,7 @@ def compute_indicators(ticker: str, data: pd.DataFrame, columns: list[str] | Non
     # Difference between two EMAs, measures momentum strength and direction changes.
     # DIF Line = EMA(12) - EMA(26)
     # DEM Line = EMA(MACD, 9)
-    # OSC (histogram) = DEM - DIF
+    # OSC (histogram) = DIF - DEM
     # Golden cross (DIF crosses above DEM) is a buy signal; death cross (DIF crosses below DEM) is a sell signal.
     # Crosses above the zero line are stronger than below; an OSC bar flipping negative to positive means momentum turns bullish.
     if should('MACD_dif', 'MACD_dem', 'MACD_osc'):

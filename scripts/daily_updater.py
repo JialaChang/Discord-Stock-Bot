@@ -1,10 +1,9 @@
 import sys, os
-import sqlite3
 import time
 import logging
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.database import DB_PATH
+from src.database import connect_db
 from src.data.sync import (download_ohlcv, extract_ticker_frame, records_from_frame, upsert_records,
                            needs_full_refresh, fetch_all_tickers)
 
@@ -28,8 +27,7 @@ def update_stock_data() -> list[str]:
     stale_tickers: list[str] = []
 
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("PRAGMA foreign_keys = ON")
+        with connect_db() as conn:
             tickers = fetch_all_tickers(conn)
             total_stocks = len(tickers)
             logger.info(f"Loaded {total_stocks} stocks from the database, starting download...")

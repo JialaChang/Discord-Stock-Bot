@@ -281,6 +281,7 @@ classDiagram
     class database {
         <<Module: database/database>>
         +str DB_PATH
+        +connect_db() Connection
         +load_sql(name) str
         +init_database()
         +insert_stock(ticker, name, market)
@@ -289,6 +290,7 @@ classDiagram
         +get_daily_prices(ticker, limit) list
         -_export_prices_html(ticker, prices)
     }
+    note for database "connect_db() 為開啟資料庫的唯一入口，內含 PRAGMA foreign_keys = ON"
 
     class sql_files {
         <<SQL Files: database/sql>>
@@ -346,7 +348,7 @@ classDiagram
 
     StockDataFetcher ..> stocks : 讀取
     StockDataFetcher ..> daily_prices : 讀取
-    StockDataFetcher --> database : load_sql()
+    StockDataFetcher --> database : connect_db() / load_sql()
     sync --> database : load_sql()
     sync ..> stocks : 讀寫 last_backfilled 欄位
     sync ..> daily_prices : 寫入
@@ -356,7 +358,9 @@ classDiagram
     daily_updater --> sync : 下載 / 寫入 / 偵測
     daily_updater --> historical_backfill : 觸發完整歷史重取
     historical_backfill --> sync : 下載 / 寫入 / 標記回補時間
-    seed_stocks --> database : 初始化 / load_sql()
+    daily_updater --> database : connect_db()
+    historical_backfill --> database : connect_db()
+    seed_stocks --> database : 初始化 / connect_db() / load_sql()
     seed_stocks ..> stocks : 寫入
     daily_prices --> stocks : FK (ticker)
 ```
@@ -415,7 +419,7 @@ classDiagram
         TestExistenceLookup
         TestAdjustedPriceReconstruction
     }
-    note for test_fetcher "自建暫存資料庫並改寫 fetcher.DB_PATH"
+    note for test_fetcher "自建暫存資料庫並改寫 database.DB_PATH"
 
     class Strategy {
         <<見「技術分析與回測引擎」圖>>

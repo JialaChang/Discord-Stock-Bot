@@ -74,6 +74,9 @@ yfinance → SQLite 的**寫入**路徑，由兩支回補腳本共用，統一�
 |------|------|
 | `sql/*.sql` | 多行或跨模組共用的 SQL：`schema`、`upsert_stock`、`upsert_daily_price`、`select_daily_prices`、`select_historical_prices` |
 | `load_sql(name)` | 讀取 `sql/<name>.sql`（`lru_cache` 快取），自 `src.database` 匯出 |
+| `connect_db()` | 開啟資料庫連線並設定 `PRAGMA foreign_keys = ON`，自 `src.database` 匯出 |
+
+**所有連線一律經由 `connect_db()` 取得，不直接呼叫 `sqlite3.connect()`。** `PRAGMA foreign_keys` 屬連線層級而非資料庫屬性，`schema.sql` 宣告的外鍵在未設定該 pragma 的連線上不生效，此類連線會靜默接受孤兒 `daily_prices` 列。
 
 ### `dc_bot_view.py` (`src/bot/dc_bot_view.py`)
 

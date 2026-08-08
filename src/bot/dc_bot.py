@@ -17,8 +17,12 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
-# Specifying a test guild speeds up command sync; without it commands go through a global sync (takes about 1 hour to take effect).
+# Specifying a test guild speeds up command sync;
+# without it commands go through a global sync (takes about 1 hour to take effect).
 GUILD_ID = os.getenv('GUILD')
+if GUILD_ID and not GUILD_ID.strip().isdecimal():
+    logger.warning(f"GUILD is not a valid guild id ({GUILD_ID!r})...")
+    GUILD_ID = None
 GUILD = discord.Object(id=int(GUILD_ID)) if GUILD_ID else None
 
 # Validate environment variables

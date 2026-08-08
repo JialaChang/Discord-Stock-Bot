@@ -1,10 +1,9 @@
 import sys, os
-import sqlite3
 import time
 import logging
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.database import DB_PATH
+from src.database import connect_db
 from src.data.sync import download_ohlcv, extract_ticker_frame, records_from_frame, upsert_records, fetch_all_tickers, fetch_pending_tickers, mark_backfilled
 
 
@@ -31,9 +30,7 @@ def backfill_history(period: int, tickers: list[str] | None = None, force: bool 
     logger.info(f"Starting historical backfill for the past {period} years...")
 
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("PRAGMA foreign_keys = ON")
-
+        with connect_db() as conn:
             if tickers is None:
                 tickers = fetch_all_tickers(conn) if force else fetch_pending_tickers(conn, REFRESH_AFTER_DAYS)
             total_stocks = len(tickers)

@@ -25,9 +25,16 @@ def load_sql(name: str) -> str:
         return f.read()
 
 
+def connect_db() -> sqlite3.Connection:
+    """Open the project database with foreign keys enforced."""
+    connect = sqlite3.connect(DB_PATH)
+    connect.execute("PRAGMA foreign_keys = ON")
+    return connect
+
+
 def init_database():
     """Initialize the SQLite database tables."""
-    with sqlite3.connect(DB_PATH) as connect:
+    with connect_db() as connect:
         connect.executescript(load_sql('schema'))
         connect.commit()
 
@@ -36,7 +43,7 @@ def init_database():
 
 def insert_stock(ticker: str, name: str, market: str) -> None:
     """Insert or update a single stock's master record."""
-    with sqlite3.connect(DB_PATH) as connect:
+    with connect_db() as connect:
         cursor = connect.cursor()
         cursor.execute(load_sql('upsert_stock'), (ticker, name, market))
         connect.commit()
@@ -44,7 +51,7 @@ def insert_stock(ticker: str, name: str, market: str) -> None:
 
 def delete_stock(ticker: str) -> None:
     """Delete a single stock's master record."""
-    with sqlite3.connect(DB_PATH) as connect:
+    with connect_db() as connect:
         cursor = connect.cursor()
         cursor.execute('''
             DELETE FROM daily_prices WHERE ticker = ?
@@ -57,7 +64,7 @@ def delete_stock(ticker: str) -> None:
 
 def get_stock(ticker: str) -> dict[str, Any] | None:
     """Query a single stock's master record."""
-    with sqlite3.connect(DB_PATH) as connect:
+    with connect_db() as connect:
         connect.row_factory = sqlite3.Row  # Allow accessing columns by name like a dict
         cursor = connect.cursor()
         cursor.execute('SELECT * FROM stocks WHERE ticker = ?', (ticker,))
@@ -67,7 +74,7 @@ def get_stock(ticker: str) -> dict[str, Any] | None:
 
 def get_daily_prices(ticker: str, days: int = 30) -> list[dict[str, Any]]:
     """Get historical prices for the given stock."""
-    with sqlite3.connect(DB_PATH) as connect:
+    with connect_db() as connect:
         connect.row_factory = sqlite3.Row
         cursor = connect.cursor()
         cursor.execute(load_sql('select_daily_prices'), (ticker, days))
@@ -82,7 +89,8 @@ def _menu_init_database():
 def _menu_insert_stock():
     ticker = input("Enter ticker (e.g. 2330.TW): ").strip()
     name   = input("Enter stock name: ").strip()
-    market = input("Enter market (TW / TWO / US / INDEX): ").strip()
+    # Listed vs. OTC is not a market: it lives in the .TW / .TWO suffix of the ticker.
+    market = input("Enter market (TW / US / INDEX): ").strip()
     insert_stock(ticker, name, market)
     print(f"Inserted/Updated: {ticker} {name}")
 

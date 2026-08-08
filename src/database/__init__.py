@@ -1,1 +1,1 @@
-from .database import DB_PATH, init_database, get_stock, load_sql
+from .database import DB_PATH, connect_db, init_database, get_stock, load_sql

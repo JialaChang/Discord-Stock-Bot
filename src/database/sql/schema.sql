@@ -20,7 +20,3 @@ CREATE TABLE IF NOT EXISTS daily_prices (
     FOREIGN KEY (ticker) REFERENCES stocks (ticker),
     UNIQUE(ticker, date)
 );
-
--- Composite index to speed up queries
-CREATE INDEX IF NOT EXISTS index_ticker_date
-ON daily_prices (ticker, date);

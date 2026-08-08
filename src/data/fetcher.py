@@ -4,12 +4,11 @@ import pandas as pd
 import twstock
 import pytz
 import logging
-import sqlite3
 from datetime import datetime, timedelta
 
 # Add the project root to the module search path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from src.database import DB_PATH, load_sql
+from src.database import connect_db, load_sql
 
 
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
@@ -34,7 +33,7 @@ class StockDataFetcher:
             base_code = ticker.split(".")[0]
 
             # First try to find a matching full ticker in the database
-            with sqlite3.connect(DB_PATH) as conn:
+            with connect_db() as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
                     SELECT ticker FROM stocks
@@ -62,7 +61,7 @@ class StockDataFetcher:
     def check_stock_exist(self) -> bool:
         """Check whether the stock exists in the database."""
         try:
-            with sqlite3.connect(DB_PATH) as conn:
+            with connect_db() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT 1 FROM stocks WHERE ticker = ? LIMIT 1", (self.ticker,))
                 return cursor.fetchone() is not None
@@ -74,7 +73,7 @@ class StockDataFetcher:
     def fetch_stock_name(self) -> str:
         """Look up the stock name from the local database."""
         try:
-            with sqlite3.connect(DB_PATH) as conn:
+            with connect_db() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT name FROM stocks WHERE ticker = ?", (self.ticker,))
                 result = cursor.fetchone()
@@ -93,7 +92,7 @@ class StockDataFetcher:
         try:
             cutoff_date = (datetime.now() - timedelta(days)).strftime('%Y-%m-%d')
 
-            with sqlite3.connect(DB_PATH) as conn:
+            with connect_db() as conn:
                 self.historical_data = pd.read_sql_query(
                     load_sql('select_historical_prices'),
                     conn,
@@ -171,7 +170,7 @@ class StockDataFetcher:
     def get_data_count(self) -> dict:
         """Return the record count and date range for this stock in the database."""
         try:
-            with sqlite3.connect(DB_PATH) as conn:
+            with connect_db() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     "SELECT COUNT(*), MIN(date), MAX(date) FROM daily_prices WHERE ticker = ?",

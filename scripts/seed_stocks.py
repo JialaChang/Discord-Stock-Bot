@@ -5,7 +5,7 @@ import pandas as pd
 import logging
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.database import DB_PATH, init_database, load_sql
+from src.database import connect_db, init_database, load_sql
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -148,8 +148,7 @@ if __name__ == "__main__":
     init_database()
 
     try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("PRAGMA foreign_keys = ON")
+        with connect_db() as conn:
             import_taiwan_stocks(conn)
             import_us_stocks(conn)
             import_global_indices(conn)

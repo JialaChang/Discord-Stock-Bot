@@ -1,8 +1,8 @@
 import sqlite3
 import pytest
 
-from src.data import fetcher as fetcher_module
 from src.data import StockDataFetcher
+from src.database import database as database_module
 from src.database import load_sql
 
 
@@ -18,7 +18,7 @@ def stock_db(tmp_path, monkeypatch):
     conn.executemany(load_sql('upsert_stock'), STOCKS)
     conn.commit()
     conn.close()
-    monkeypatch.setattr(fetcher_module, 'DB_PATH', str(path))
+    monkeypatch.setattr(database_module, 'DB_PATH', str(path))
     return str(path)
 
 
@@ -32,7 +32,7 @@ def store_prices(path, rows):
 class TestTickerNormalization:
     @pytest.mark.parametrize("raw,expected", [
         ('SPCX', 'SPCX'),
-        ('spcx', 'SPCX'),          # SQLite '=' is case-sensitive, so this must be folded
+        ('spcx', 'SPCX'),          # SQLite '=' is case-sensitive
         ('  spcx  ', 'SPCX'),
         ('2330', '2330.TW'),       # bare TW code resolves to its listed suffix
         ('2330.TW', '2330.TW'),
