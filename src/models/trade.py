@@ -7,23 +7,6 @@ from typing import Literal
 Side = Literal["LONG", "SHORT"]
 
 
-def pnl_ratio(side: Side, entry_price: float, exit_price: float) -> float:
-    """Capital multiplier of a position: 1.05 means the capital grew 5%.
-
-    A short is modelled as unleveraged and fully funded, so the multiplier isfloored at 0. 
-    Without the floor a price that more than doubles produces anegative multiplier, 
-    which flips the sign of every later compounding step and corrupts the whole equity curve.
-    """
-    if entry_price <= 0:
-        return 1.0
-    if side == "LONG":
-        return exit_price / entry_price
-    elif side == "SHORT":
-        # = 1 + (entry_price - exit_price) / entry_price
-        pnlr = 2 - exit_price / entry_price
-        return max(0.0, pnlr)
-
-
 @dataclass
 class Signal:
     """A buy/sell signal along with the strategy conditions that produced it."""
@@ -39,9 +22,7 @@ class Position:
     entry_price: float
     entry_signal: Signal
     side: Side
-
-    def unrealized_pnl_ratio(self, price_now: float) -> float:
-        return pnl_ratio(self.side, self.entry_price, price_now)
+    shares: int
 
 
 @dataclass
@@ -55,10 +36,11 @@ class Trade:
     entry_signal: Signal
     exit_signal: Signal
     side: Side
-    shares: int = 1  # Number of shares traded
+    shares: int
 
     @property
     def profit_and_loss(self) -> float:
+        """Currency P&L, and the exact amount by which this trade moved the account's cash."""
         if self.side == "LONG":
             return (self.exit_price - self.entry_price) * self.shares
         else:
@@ -66,7 +48,11 @@ class Trade:
 
     @property
     def return_on_investment(self) -> float:
-        return (pnl_ratio(self.side, self.entry_price, self.exit_price) - 1) * 100
+        """Percent return on the capital committed, derived from the P&L so the two agree."""
+        committed = self.entry_price * self.shares
+        if committed <= 0:
+            return 0.0
+        return self.profit_and_loss / committed * 100
 
     @property
     def is_profit(self) -> bool:

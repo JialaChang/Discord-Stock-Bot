@@ -2,7 +2,7 @@ import math
 import pandas as pd
 from datetime import date as date_type, datetime, timedelta
 
-from src.models import BacktestResult, Trade, Position, Signal, Side, pnl_ratio
+from src.models import BacktestResult, Trade, Position, Signal, Side
 from src.quant import compute_indicators, RSIStrategy, EMAStrategy, Strategy
 from src.quant.errors import InsufficientDataError
 
@@ -27,7 +27,7 @@ PERIOD_DAYS = {
 class BacktestEngine:
     def __init__(self, strategy: Strategy) -> None:
         self.strategy: Strategy = strategy
-        self.cumulative_multiplier = 1.0  # Compounding multiplier
+        self.cash = float(INITIAL_CAPITAL)
         self.position: Position | None = None
         self.trades: list[Trade] = []
         self.equity: list[float] = []
@@ -48,7 +48,7 @@ class BacktestEngine:
         `start` drops everything before it once indicators are computed, so rows
         fetched purely to warm the indicators up do not count as backtested days.
         """
-        self.cumulative_multiplier = 1.0
+        self.cash = float(INITIAL_CAPITAL)
         self.position = None
         self.trades = []
         self.equity = []
@@ -97,9 +97,7 @@ class BacktestEngine:
                     stop_price = max(stop_price, price_open)  # Fill at the open if it gaps above the stop price
                     self._close_position(ticker, date, stop_price, Signal("EXIT_SHORT", {"stop_loss": True}, {}))
 
-            # Floating (unrealized) P&L
-            floating_ratio = self.position.unrealized_pnl_ratio(price_close) if self.position else 1.0
-            self.equity.append(INITIAL_CAPITAL * self.cumulative_multiplier * floating_ratio)
+            self.equity.append(self._mark_to_market(price_close))
 
             # Generate today's signal from the close, to be used the next day
             signal = self.strategy.signal(row, self.position)
@@ -114,17 +112,35 @@ class BacktestEngine:
         equity_curve = pd.Series(self.equity, index=data.index)
         return BacktestResult(ticker, self.trades, equity_curve, data)
 
+    def _mark_to_market(self, price: float) -> float:
+        """Account value at `price`: settled cash plus or minus what the position is worth."""
+        if self.position is None:
+            return self.cash
+        if self.position.side == "LONG":
+            return self.cash + self.position.shares * price
+        # A short's proceeds are already in cash; the shares owed back are the liability.
+        return self.cash - self.position.shares * price
+
     def _open_position(self, date: pd.Timestamp, price: float, signal: Signal, side: Side) -> None:
-        """Open a position at `price`, ignoring rows whose fill price is unusable."""
+        """Open the largest whole-share position the cash allows, at `price`.
+
+        Whole shares mean a leftover that stays in cash, and a price above the whole account
+        means no trade at all rather than a fractional one. Sizing a short off cash alone is
+        what makes it unleveraged and fully funded: the collateral is the entire account.
+        """
         if not price > 0:
             return
-        self.position = Position(date.date(), price, signal, side=side)
+        shares = int(self.cash // price)
+        if shares <= 0:  # Cannot afford a single share; skip the trade
+            return
+        self.cash += -shares * price if side == "LONG" else shares * price
+        self.position = Position(date.date(), price, signal, side, shares)
 
     def _close_position(self, ticker: str, date: pd.Timestamp, price: float, exit_signal: Signal) -> None:
         """Close the open position at `price` and record the round-trip trade."""
         if self.position is None:
             return
-        self.cumulative_multiplier *= pnl_ratio(self.position.side, self.position.entry_price, price)
+        self.cash += self.position.shares * price if self.position.side == "LONG" else -self.position.shares * price
         self.trades.append(Trade(ticker,
                                  self.position.entry_date,
                                  self.position.entry_price,
@@ -132,7 +148,8 @@ class BacktestEngine:
                                  price,
                                  self.position.entry_signal,
                                  exit_signal,
-                                 self.position.side))
+                                 self.position.side,
+                                 self.position.shares))
         self.position = None
 
     def print_backtest_result(self, result: BacktestResult) -> None:
@@ -150,7 +167,7 @@ class BacktestEngine:
 
     def export_backtest_result_html(self, result: BacktestResult) -> str:
         """Write the backtest result to an HTML report and return the file path."""
-        from src.utils.html_report import html_document, html_table, fmt_num, write_report
+        from src.utils.html_report import html_document, html_table, fmt_int, fmt_num, write_report
 
         def signed_class(v: float) -> str:
             return 'up' if v > 0 else 'down' if v < 0 else 'flat'
@@ -181,6 +198,7 @@ class BacktestEngine:
                 t.side,
                 (f'{roi:+.2f}%', signed_class(roi)),
                 (fmt_num(t.profit_and_loss), signed_class(t.profit_and_loss)),
+                fmt_int(t.shares),
                 str(t.entry_date),
                 fmt_num(t.entry_price),
                 signal_reason(t.entry_signal),
@@ -189,7 +207,7 @@ class BacktestEngine:
                 signal_reason(t.exit_signal),
             ])
         trades_table = html_table(
-            ['Side', 'Return', 'P&L', 'Entry Date', 'Entry', 'Entry Reason',
+            ['Side', 'Return', 'P&L', 'Shares', 'Entry Date', 'Entry', 'Entry Reason',
              'Exit Date', 'Exit', 'Exit Reason'],
             trade_rows,
         )

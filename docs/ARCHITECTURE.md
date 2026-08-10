@@ -106,23 +106,25 @@ yfinance → SQLite 的**寫入**路徑，由兩支回補腳本共用，統一�
 ```
 
 - 只計算並 `dropna` 策略宣告的 `required_columns`
-- 以 `cumulative_multiplier` 累積收益倍率，支援做多 / 做空
+- 以現金與整股部位記帳（`cash` + `_mark_to_market()`），支援做多 / 做空
 - 結束時未平倉部位以最後一日收盤強制平倉
 
 > **指標暖身另行取得，不佔用回測區間。** 呼叫端依 `required_history_days(period_days)` 決定取得天數並將 `start` 傳入 `run()`，待指標計算完成後才截去暖身段。若僅取得使用者指定的區間，短週期回測的可用列數將被暖身消耗殆盡。資料不足時拋出 `InsufficientDataError`，其訊息會原文回覆使用者，故須寫明處置方式。
 
 `PERIOD_DAYS` 為回測區間長度的**唯一定義來源**；Discord 指令僅引用其部分 key，不另行定義天數。
 
+> **帳戶僅由現金與一筆整股部位構成。** `cash` 為唯一的價值儲存處，每根 K 的權益即 `_mark_to_market()` 算出的 `cash ± shares × price`；做空的賣出價金亦存入 `cash`，負債為欠還的股票，故同一條估值式涵蓋多空兩側，且以現金定量使其無槓桿而全額擔保。`_open_position()` 買進 `int(cash // price)` 股，零頭閒置於現金形成真實的資金拖累，股價高於整個帳戶時不成交而非成交零股。`Trade.profit_and_loss` 因而恰為該筆交易使 `cash` 變動的金額，`INITIAL_CAPITAL + Σ 損益` 於構造上等於最終權益。
+
 ### `Signal` / `Position` / `Trade` / `BacktestResult` (`src/models/trade.py`)
 
 | 類別 | 說明 |
 |------|------|
 | `Signal` | 策略訊號：`action`、`conditions`、觸發時 `values`。報表由 `conditions` 的真值鍵導出進出場原因 |
-| `Position` | 進場快照；`unrealized_pnl_ratio()` 回傳浮動損益倍率 |
-| `Trade` | 單筆交易；`profit_and_loss`、`return_on_investment`、`is_profit` |
+| `Position` | 進場快照；含 `shares`（持有或借券賣出的整股數） |
+| `Trade` | 單筆交易；`shares`、`profit_and_loss`、`return_on_investment`、`is_profit` |
 | `BacktestResult` | 回測彙總；`total_return`、`win_rate`、`max_drawdown`、`trade_count` |
 
-> **損益倍率一律由 `pnl_ratio(side, entry_price, exit_price)` 計算，做空以 0 為下限。** 未設下限時，`2 - exit/entry` 於股價漲逾一倍後轉為負值，並反轉其後每次複利的正負號，導致權益曲線失真且不易察覺。`Trade.return_on_investment` 由同一函式導出，確保報表與權益曲線一致。
+> **`Trade.profit_and_loss` 是方向語意的唯一定義處。** `return_on_investment` 以 `entry_price × shares` 除之導出，故同一列報表中的金額與百分比不可能描述不同的交易。兩者皆不設下限：跳空穿越擔保品的空單確實虧損超過其投入（停損以開盤價成交），截斷將使報酬率與金額互相矛盾。現金因而可能轉負，此時 `int(cash // price)` ≤ 0，帳戶自行停止開倉。
 
 ---
 
@@ -215,7 +217,9 @@ Embed 所需的最小快照。`previous_close` 亦供盤中圖著色使用。`rs
 
 | 設計規則 | 守護測試 |
 |----------|----------|
-| 做空損益倍率以 0 為下限，且與 `return_on_investment` 一致 | `test_models.py::TestPnlRatio` / `TestTrade` |
+| 金額損益與報酬率描述同一筆交易，且皆不設下限 | `test_models.py::TestTrade` |
+| 倉位以整股計、零頭留為現金、買不起則不成交 | `test_backtest.py::TestPositionSizing` |
+| 逐筆損益總和等於最終權益 | `test_backtest.py::TestEquityCurve` |
 | 漲跌幅由前收導出；RSI 缺值顯示 `N/A` | `test_models.py::TestStockSnapshot` |
 | 訊號於當日收盤產生、隔日開盤成交 | `test_backtest.py::TestOrderExecution` |
 | 停損以停損價成交，跳空則以開盤價成交 | `test_backtest.py::TestStopLoss` |

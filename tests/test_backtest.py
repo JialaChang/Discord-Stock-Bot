@@ -51,6 +51,29 @@ class TestOrderExecution:
         assert result.trades == []
 
 
+class TestPositionSizing:
+    def test_position_is_sized_in_whole_shares(self):
+        # 100,000 buys 162 shares at 617; the 46 left over stays in cash.
+        data = make_ohlcv([617, 617, 617])
+        result = BacktestEngine(ScriptedStrategy(["ENTER_LONG"])).run("X", data)
+
+        assert result.trades[0].shares == 162
+
+    def test_leftover_cash_does_not_participate_in_the_move(self):
+        # 333 shares at 300 leaves 100 idle, so a +10% move earns slightly less than 10%.
+        data = make_ohlcv([300, 300, 330], opens=[300, 300, 330])
+        result = BacktestEngine(ScriptedStrategy(["ENTER_LONG"])).run("X", data)
+
+        assert result.total_return == pytest.approx(9.99)
+
+    def test_a_share_costing_more_than_the_account_is_not_bought(self):
+        # Whole shares only, so an unaffordable share means no trade at all.
+        data = make_ohlcv([INITIAL_CAPITAL * 2] * 3)
+        result = BacktestEngine(ScriptedStrategy(["ENTER_LONG"])).run("X", data)
+
+        assert result.trades == []
+
+
 class TestStopLoss:
     def test_long_stop_fills_at_the_stop_price(self):
         # Enter at 100, then an intraday low of 80 breaks the 15% stop at 85.
@@ -94,15 +117,27 @@ class TestEquityCurve:
         assert result.equity_curve.iloc[0] == pytest.approx(INITIAL_CAPITAL)
         assert result.total_return == pytest.approx(0.0)
 
-    def test_equity_never_goes_negative_in_a_short_squeeze(self):
-        # Unclamped, a short against a price that quadruples yields a negative
-        # multiplier, which then flips the sign of everything that follows.
-        data = make_ohlcv([100, 100, 400], opens=[100, 100, 400],
-                          highs=[101, 101, 410], lows=[99, 99, 390])
-        result = BacktestEngine(ScriptedStrategy(["ENTER_SHORT"])).run("X", data)
+    def test_pnl_of_every_trade_sums_to_the_final_equity(self):
+        # Two round trips of +10%: 1,000 shares at 100, then 1,000 at 110.
+        data = make_ohlcv([100, 100, 110, 110, 121, 121],
+                          opens=[100, 100, 110, 110, 121, 121])
+        actions = ["ENTER_LONG", "EXIT_LONG", "ENTER_LONG", "EXIT_LONG"]
+        result = BacktestEngine(ScriptedStrategy(actions)).run("X", data)
 
-        assert (result.equity_curve >= 0).all()
-        assert result.max_drawdown >= -100.0
+        assert [t.profit_and_loss for t in result.trades] == [pytest.approx(10_000), pytest.approx(11_000)]
+        assert result.equity_curve.iloc[-1] == pytest.approx(
+            INITIAL_CAPITAL + sum(t.profit_and_loss for t in result.trades))
+
+    def test_a_gapped_short_loses_more_than_the_account(self):
+        # The collateral is the whole account, so the stop at +15% would cap the loss --
+        # but a quadrupling overnight means it fills at the open, far past the collateral.
+        data = make_ohlcv([100, 100, 400, 100], opens=[100, 100, 400, 100],
+                          highs=[101, 101, 410, 101], lows=[99, 99, 390, 99])
+        result = BacktestEngine(ScriptedStrategy(["ENTER_SHORT", "HOLD", "ENTER_LONG"])).run("X", data)
+
+        assert result.equity_curve.iloc[-1] == pytest.approx(-200_000)
+        assert result.max_drawdown < -100.0
+        assert result.trade_count == 1  # Nothing left to trade with
 
     def test_equity_has_one_point_per_backtested_bar(self):
         data = make_ohlcv([100] * 6)

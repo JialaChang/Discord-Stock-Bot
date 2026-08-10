@@ -12,11 +12,6 @@
 classDiagram
     direction TB
 
-    class trade_module {
-        <<Module: models/trade>>
-        +pnl_ratio(side, entry_price, exit_price) float
-    }
-
     class StockSnapshot {
         <<Data Transfer Object>>
         +str ticker
@@ -44,7 +39,7 @@ classDiagram
         +float entry_price
         +Signal entry_signal
         +Literal side
-        +unrealized_pnl_ratio(price_now) float
+        +int shares
     }
 
     class Trade {
@@ -78,8 +73,6 @@ classDiagram
     Trade --> Signal : 包含 entry/exit
     Position --> Signal : 包含 entry
     BacktestResult --> Trade : 包含 list
-    Position ..> trade_module : 委派
-    Trade ..> trade_module : 委派
 ```
 
 ## 2. 技術分析與回測引擎 (`src/quant/`)
@@ -118,7 +111,7 @@ classDiagram
 
     class BacktestEngine {
         +Strategy strategy
-        +float cumulative_multiplier
+        +float cash
         +Position position
         +list~Trade~ trades
         +list~float~ equity
@@ -413,7 +406,6 @@ classDiagram
     class test_models {
         <<Test Module>>
         TestStockSnapshot
-        TestPnlRatio
         TestTrade
         TestBacktestResult
     }
@@ -421,6 +413,7 @@ classDiagram
     class test_backtest {
         <<Test Module>>
         TestOrderExecution
+        TestPositionSizing
         TestStopLoss
         TestEquityCurve
         TestIndicatorWarmup
@@ -460,7 +453,7 @@ classDiagram
     class BacktestEngine {
         <<見「技術分析與回測引擎」圖>>
     }
-    class trade_module {
+    class Trade {
         <<見「資料模型」圖>>
     }
     class StockSnapshot {
@@ -488,7 +481,7 @@ classDiagram
     test_sync --> conftest
     test_fetcher --> conftest
 
-    test_models ..> trade_module : 損益倍率下限
+    test_models ..> Trade : 金額損益與報酬率一致
     test_models ..> StockSnapshot : 漲跌幅導出與指標缺值
     test_models ..> BacktestResult : 績效指標與空曲線防護
     test_backtest ..> BacktestEngine : 成交規則、停損、暖身

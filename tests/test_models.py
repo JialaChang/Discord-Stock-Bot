@@ -2,15 +2,15 @@ from datetime import date, datetime
 import pandas as pd
 import pytest
 
-from src.models import BacktestResult, Signal, StockSnapshot, Trade, pnl_ratio
+from src.models import BacktestResult, Signal, StockSnapshot, Trade
 
 
 HOLD = Signal("HOLD", {}, {})
 
 
-def make_trade(side, entry_price, exit_price):
+def make_trade(side, entry_price, exit_price, shares=1):
     return Trade("X", date(2026, 1, 1), entry_price, date(2026, 1, 2), exit_price,
-                 HOLD, HOLD, side)
+                 HOLD, HOLD, side, shares)
 
 
 def make_result(equity, trades=()):
@@ -46,50 +46,35 @@ class TestStockSnapshot:
         assert make_snapshot(110, 100, rsi_value=48.246).rsi_str == "48.25"
 
 
-class TestPnlRatio:
-    def test_long_gain(self):
-        assert pnl_ratio("LONG", 100, 110) == pytest.approx(1.10)
+class TestTrade:
+    @pytest.mark.parametrize("side,exit_price,expected_roi",
+                             [("LONG", 125, 25.0), ("LONG", 90, -10.0),
+                              ("SHORT", 80, 20.0), ("SHORT", 110, -10.0)])
+    def test_roi_follows_the_side(self, side, exit_price, expected_roi):
+        assert make_trade(side, 100, exit_price).return_on_investment == pytest.approx(expected_roi)
 
-    def test_long_loss(self):
-        assert pnl_ratio("LONG", 100, 90) == pytest.approx(0.90)
+    def test_short_at_double_is_a_total_loss(self):
+        assert make_trade("SHORT", 100, 200).return_on_investment == pytest.approx(-100.0)
 
-    def test_short_gains_when_price_falls(self):
-        assert pnl_ratio("SHORT", 100, 90) == pytest.approx(1.10)
-
-    def test_short_loses_when_price_rises(self):
-        assert pnl_ratio("SHORT", 100, 110) == pytest.approx(0.90)
-
-    def test_short_is_wiped_out_at_double(self):
-        assert pnl_ratio("SHORT", 100, 200) == 0.0
-
-    def test_short_is_floored_at_zero(self):
-        # Unclamped this is 2 - 3.5 = -1.5, which would invert the sign of every
-        # later compounding step and corrupt the rest of the equity curve.
-        assert pnl_ratio("SHORT", 100, 350) == 0.0
+    def test_squeezed_short_reports_more_than_a_total_loss(self):
+        assert make_trade("SHORT", 100, 350).return_on_investment == pytest.approx(-250.0)
 
     @pytest.mark.parametrize("entry_price", [0, -5])
-    def test_unusable_entry_price_is_inert(self, entry_price):
-        assert pnl_ratio("LONG", entry_price, 50) == 1.0
-        assert pnl_ratio("SHORT", entry_price, 50) == 1.0
+    def test_unusable_entry_price_does_not_divide_by_zero(self, entry_price):
+        # Unreachable from the engine, which refuses to fill at a non-positive price.
+        assert make_trade("LONG", entry_price, 50).return_on_investment == 0.0
+        assert make_trade("SHORT", entry_price, 50).return_on_investment == 0.0
 
+    def test_pnl_and_roi_describe_the_same_trade(self):
+        # The two sit side by side in the HTML report; 7 shares sold at 100, bought back at 137.
+        trade = make_trade("SHORT", 100, 137, shares=7)
+        assert trade.profit_and_loss == pytest.approx(-259.0)
+        assert trade.return_on_investment == pytest.approx(-37.0)
 
-class TestTrade:
-    def test_long_roi(self):
-        assert make_trade("LONG", 100, 125).return_on_investment == pytest.approx(25.0)
-
-    def test_short_roi(self):
-        assert make_trade("SHORT", 100, 80).return_on_investment == pytest.approx(20.0)
-
-    def test_wiped_short_reports_minus_100_percent(self):
-        # The equity curve floors at zero, so the report must not claim -250%.
-        assert make_trade("SHORT", 100, 350).return_on_investment == pytest.approx(-100.0)
-
-    @pytest.mark.parametrize("side,entry_price,exit_price",
-                             [("LONG", 100, 137), ("SHORT", 100, 137), ("SHORT", 100, 260)])
-    def test_roi_always_agrees_with_the_compounding_ratio(self, side, entry_price, exit_price):
-        trade = make_trade(side, entry_price, exit_price)
-        expected = (pnl_ratio(side, entry_price, exit_price) - 1) * 100
-        assert trade.return_on_investment == pytest.approx(expected)
+    def test_pnl_scales_with_position_size_not_with_price_level(self):
+        cheap = make_trade("LONG", 50, 55, shares=200)     # 10,000 committed, +10%
+        pricey = make_trade("LONG", 500, 550, shares=20)   # 10,000 committed, +10%
+        assert cheap.profit_and_loss == pytest.approx(pricey.profit_and_loss)
 
     def test_is_profit_follows_direction(self):
         assert make_trade("SHORT", 100, 90).is_profit

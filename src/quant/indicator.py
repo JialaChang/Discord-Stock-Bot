@@ -97,7 +97,7 @@ def compute_indicators_for_discord(ticker: str, name: str, history_data: pd.Data
     prices = history_data['Close']
     rsi = pta.rsi(prices, length=14)
 
-    # ── Current price and its reference price ────────────────────
+    # Current price and its reference price
     if not intraday_data.empty:
         curr_price = intraday_data['Close'].iloc[-1]
         curr_date = pd.to_datetime(intraday_data.index[-1]).date()
@@ -110,7 +110,7 @@ def compute_indicators_for_discord(ticker: str, name: str, history_data: pd.Data
     past_data = history_data[pd.to_datetime(history_data.index).date < curr_date]
     prev_price = float(past_data['Close'].iloc[-1] if not past_data.empty else prices.iloc[-2])
 
-    # ── Take the latest value, None when unavailable ─────────────
+    # Take the latest value, None when unavailable
     def last(series: pd.Series | None) -> float | None:
         if series is None or series.empty:
             return None
