@@ -1,9 +1,9 @@
 import pytest
-from pandas import Series
+from pandas import DataFrame
 
 from src.models import Position, Signal
 from src.quant import BacktestEngine, EMAStrategy, InsufficientDataError, RSIStrategy, Strategy
-from src.quant.backtest import INITIAL_CAPITAL, STOP_LOSS
+from src.quant.backtest import INITIAL_CAPITAL, STOP_LOSS, history_window
 from tests.conftest import make_ohlcv
 
 
@@ -11,19 +11,40 @@ class ScriptedStrategy(Strategy):
     """Emits a predetermined action per bar, so tests drive the engine directly.
 
     Declares `Close` so the engine's dropna has a real column to work on without
-    any indicator being computed.
+    any indicator being computed. The bar counter lives in `reset()` so replaying
+    the same instance restarts the script rather than resuming part-way through it.
     """
     required_columns = ["Close"]
     warmup = 0
 
     def __init__(self, actions):
         self.actions = list(actions)
+        super().__init__()
+
+    def reset(self) -> None:
         self.bar = -1
 
-    def signal(self, row: Series, position: Position | None) -> Signal:
+    def signal(self, history: DataFrame, position: Position | None) -> Signal:
         self.bar += 1
         action = self.actions[self.bar] if self.bar < len(self.actions) else "HOLD"
         return Signal(action, {}, {})
+
+
+class RecordingStrategy(Strategy):
+    """Holds throughout and keeps every history frame the engine handed it."""
+    required_columns = ["Close"]
+    warmup = 0
+
+    def __init__(self, lookback: int | None = 1):
+        self.lookback = lookback
+        super().__init__()
+
+    def reset(self) -> None:
+        self.seen: list[DataFrame] = []
+
+    def signal(self, history: DataFrame, position: Position | None) -> Signal:
+        self.seen.append(history)
+        return Signal("HOLD", {}, {})
 
 
 class TestOrderExecution:
@@ -146,6 +167,153 @@ class TestEquityCurve:
         assert len(result.equity_curve) == len(data)
 
 
+class TestReversal:
+    def test_reverse_short_closes_the_long_and_opens_at_the_same_price(self):
+        # Bar 2 both exits the long and enters the short, on that bar's open.
+        data = make_ohlcv([100, 100, 110, 110], opens=[100, 100, 110, 110])
+        result = BacktestEngine(ScriptedStrategy(["ENTER_LONG", "REVERSE_SHORT"])).run("X", data)
+
+        closed, opened = result.trades
+        assert (closed.side, opened.side) == ("LONG", "SHORT")
+        assert closed.exit_date == opened.entry_date == data.index[2].date()
+        assert closed.exit_price == opened.entry_price == 110
+
+    def test_reverse_long_closes_the_short_and_opens_long(self):
+        data = make_ohlcv([100, 100, 90, 90], opens=[100, 100, 90, 90])
+        result = BacktestEngine(ScriptedStrategy(["ENTER_SHORT", "REVERSE_LONG"])).run("X", data)
+
+        closed, opened = result.trades
+        assert (closed.side, opened.side) == ("SHORT", "LONG")
+        assert closed.exit_price == opened.entry_price == 90
+
+    def test_the_closing_trade_is_attributed_to_the_flipping_signal(self):
+        # Otherwise the report would show a bare exit with no reason attached.
+        data = make_ohlcv([100, 100, 110, 110], opens=[100, 100, 110, 110])
+        result = BacktestEngine(ScriptedStrategy(["ENTER_LONG", "REVERSE_SHORT"])).run("X", data)
+
+        assert result.trades[0].exit_signal.action == "REVERSE_SHORT"
+
+    def test_reversing_while_flat_does_nothing(self):
+        # A reverse names a side to flip to; with nothing held there is nothing to flip.
+        data = make_ohlcv([100, 100, 100])
+        result = BacktestEngine(ScriptedStrategy(["REVERSE_LONG"])).run("X", data)
+
+        assert result.trades == []
+
+    def test_reversing_onto_the_side_already_held_does_nothing(self):
+        data = make_ohlcv([100, 100, 100, 100], opens=[100, 100, 100, 100])
+        result = BacktestEngine(ScriptedStrategy(["ENTER_LONG", "REVERSE_LONG"])).run("X", data)
+
+        assert result.trade_count == 1
+        assert result.trades[0].exit_signal.conditions == {"end_of_backtest": True}
+
+    def test_a_crossover_strategy_alternates_sides_without_going_flat(self):
+        # Falling, rising, falling. The opening leg leaves EMA_5 under EMA_20 by the time the
+        # warm-up ends, so both a golden and a death cross land inside the backtest itself.
+        closes = ([100 - 0.4 * i for i in range(25)]
+                  + [90 + 1.0 * i for i in range(25)]
+                  + [115 - 0.8 * i for i in range(25)])
+        result = BacktestEngine(EMAStrategy()).run("X", make_ohlcv(closes))
+
+        assert [t.side for t in result.trades] == ["LONG", "SHORT"]
+        assert result.trades[0].entry_signal.conditions == {"ema_golden_cross": True}
+        assert result.trades[0].exit_signal.conditions == {"ema_death_cross": True}
+        assert result.trades[0].exit_date == result.trades[1].entry_date
+
+
+class TestHistoryWindow:
+    """The slicing rule itself, which the strategy tests also build their inputs from."""
+
+    def test_the_window_ends_at_the_requested_bar(self):
+        data = make_ohlcv([100] * 10)
+
+        assert list(history_window(data, 4, 3).index) == list(data.index[2:5])
+
+    def test_an_early_bar_gets_a_short_window_rather_than_a_wrapped_one(self):
+        # An unclamped start would go negative, count from the end, and return nothing.
+        data = make_ohlcv([100] * 10)
+
+        assert list(history_window(data, 0, 3).index) == [data.index[0]]
+
+    def test_a_lookback_longer_than_the_frame_yields_the_whole_frame(self):
+        data = make_ohlcv([100] * 5)
+
+        assert len(history_window(data, 4, 99)) == 5
+
+    def test_a_lookback_of_none_yields_everything_up_to_the_bar(self):
+        data = make_ohlcv([100] * 10)
+
+        assert list(history_window(data, 6, None).index) == list(data.index[:7])
+
+
+class TestStrategyHistory:
+    def test_the_strategy_sees_lookback_rows_ending_at_today(self):
+        data = make_ohlcv([100] * 10)
+        strategy = RecordingStrategy(lookback=3)
+        BacktestEngine(strategy).run("X", data)
+
+        assert [len(h) for h in strategy.seen] == [1, 2, 3, 3, 3, 3, 3, 3, 3, 3]
+        assert [h.index[-1] for h in strategy.seen] == list(data.index)
+
+    def test_history_never_reaches_past_today(self):
+        # The one guarantee that makes lookahead bias structurally impossible.
+        data = make_ohlcv([100] * 10)
+        strategy = RecordingStrategy(lookback=4)
+        BacktestEngine(strategy).run("X", data)
+
+        assert all(h.index.max() == data.index[i] for i, h in enumerate(strategy.seen))
+
+    def test_the_windows_first_bar_looks_back_before_start(self):
+        # Rows before `start` are kept precisely so the opening bar is not short-changed.
+        data = make_ohlcv([100] * 10)
+        strategy = RecordingStrategy(lookback=3)
+        result = BacktestEngine(strategy).run("X", data, start=data.index[6])
+
+        first = strategy.seen[0]
+        assert len(first) == 3
+        assert first.index[0] == data.index[4]   # two bars before the window opens
+        assert first.index[-1] == data.index[6]
+        assert len(result.equity_curve) == 4     # only the window is backtested
+
+    def test_a_lookback_of_none_hands_over_everything_so_far(self):
+        data = make_ohlcv([100] * 10)
+        strategy = RecordingStrategy(lookback=None)
+        BacktestEngine(strategy).run("X", data, start=data.index[6])
+
+        assert [len(h) for h in strategy.seen] == [7, 8, 9, 10]
+        assert all(h.index[0] == data.index[0] for h in strategy.seen)
+
+    def test_the_result_carries_the_window_not_the_rows_before_it(self):
+        data = make_ohlcv([100] * 10)
+        result = BacktestEngine(RecordingStrategy()).run("X", data, start=data.index[6])
+
+        assert result.data.index[0] == data.index[6]
+        assert len(result.data) == len(result.equity_curve) == 4
+
+
+class TestStrategyLifecycle:
+    def test_replaying_an_engine_repeats_the_same_backtest(self):
+        # `reset()` is what keeps per-run strategy state from leaking into the next run.
+        data = make_ohlcv([100, 100, 110, 110], opens=[100, 100, 110, 110])
+        engine = BacktestEngine(ScriptedStrategy(["ENTER_LONG", "EXIT_LONG"]))
+
+        first = engine.run("X", data)
+        second = engine.run("X", data)
+
+        assert first.trade_count == second.trade_count == 1
+        assert first.total_return == second.total_return
+
+    def test_strategy_state_does_not_accumulate_across_runs(self):
+        data = make_ohlcv([100] * 5)
+        strategy = RecordingStrategy()
+        engine = BacktestEngine(strategy)
+
+        engine.run("X", data)
+        engine.run("X", data)
+
+        assert len(strategy.seen) == len(data)
+
+
 class TestIndicatorWarmup:
     def test_required_history_days_asks_for_more_than_the_window(self):
         assert BacktestEngine(EMAStrategy()).required_history_days(30) > 30
@@ -154,6 +322,18 @@ class TestIndicatorWarmup:
         rsi = BacktestEngine(RSIStrategy()).required_history_days(30)   # warmup 14
         ema = BacktestEngine(EMAStrategy()).required_history_days(30)   # warmup 20
         assert rsi < ema
+
+    def test_a_longer_lookback_asks_for_more_history(self):
+        # Warm-up and lookback stack: the lookback rows must already carry indicator values.
+        short = BacktestEngine(RecordingStrategy(lookback=1)).required_history_days(30)
+        long = BacktestEngine(RecordingStrategy(lookback=20)).required_history_days(30)
+        assert short < long
+
+    def test_a_lookback_of_none_asks_for_nothing_extra(self):
+        # None guarantees no minimum, so there is no fixed amount to reserve for it.
+        one = BacktestEngine(RecordingStrategy(lookback=1)).required_history_days(30)
+        unbounded = BacktestEngine(RecordingStrategy(lookback=None)).required_history_days(30)
+        assert one == unbounded
 
     def test_start_excludes_the_warmup_rows(self):
         data = make_ohlcv([100] * 10)

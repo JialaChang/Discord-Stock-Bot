@@ -91,15 +91,18 @@ classDiagram
         <<Abstract>>
         +list~str~ required_columns
         +int warmup
-        +signal(row, position) Signal
+        +int_or_None lookback
+        +reset() None
+        +signal(history, position) Signal
     }
 
     class RSIStrategy {
-        +signal(row, position) Signal
+        +signal(history, position) Signal
     }
 
     class EMAStrategy {
-        +signal(row, position) Signal
+        +reset() None
+        +signal(history, position) Signal
     }
 
     class backtest_module {
@@ -107,6 +110,7 @@ classDiagram
         +dict~str_int~ PERIOD_DAYS
         +int INITIAL_CAPITAL
         +float STOP_LOSS
+        +history_window(data, i, lookback) DataFrame
     }
 
     class BacktestEngine {
@@ -151,7 +155,7 @@ classDiagram
     indicator ..> InsufficientDataError : 拋出
     BacktestEngine --> Strategy : 持有
     BacktestEngine --> indicator : 計算指標
-    BacktestEngine --> backtest_module : 讀取常數
+    BacktestEngine --> backtest_module : 讀取常數 / 切歷史區間
     BacktestEngine --> html_report : 匯出報表
     BacktestEngine ..> Position : 追蹤
     BacktestEngine ..> Trade : 產生
@@ -400,7 +404,15 @@ classDiagram
 
     class ScriptedStrategy {
         <<Test Double: tests/test_backtest>>
-        +signal(row, position) Signal
+        +reset() None
+        +signal(history, position) Signal
+    }
+
+    class RecordingStrategy {
+        <<Test Double: tests/test_backtest>>
+        +list~DataFrame~ seen
+        +reset() None
+        +signal(history, position) Signal
     }
 
     class test_models {
@@ -413,10 +425,23 @@ classDiagram
     class test_backtest {
         <<Test Module>>
         TestOrderExecution
+        TestReversal
         TestPositionSizing
         TestStopLoss
         TestEquityCurve
+        TestHistoryWindow
+        TestStrategyHistory
+        TestStrategyLifecycle
         TestIndicatorWarmup
+    }
+
+    class test_strategy {
+        <<Test Module>>
+        TestEMACrossDetection
+        TestEMATouchingLines
+        TestEMAReversal
+        TestEMARunStart
+        TestRSIReadsTheLatestBar
     }
 
     class test_sync {
@@ -453,6 +478,9 @@ classDiagram
     class BacktestEngine {
         <<見「技術分析與回測引擎」圖>>
     }
+    class backtest_module {
+        <<見「技術分析與回測引擎」圖>>
+    }
     class Trade {
         <<見「資料模型」圖>>
     }
@@ -476,15 +504,19 @@ classDiagram
     }
 
     ScriptedStrategy --|> Strategy
+    RecordingStrategy --|> Strategy
     test_backtest --> ScriptedStrategy : 驅動引擎
+    test_backtest --> RecordingStrategy : 記錄可見歷史
     test_backtest --> conftest
+    test_strategy --> backtest_module : 沿用 history_window 切片
     test_sync --> conftest
     test_fetcher --> conftest
 
     test_models ..> Trade : 金額損益與報酬率一致
     test_models ..> StockSnapshot : 漲跌幅導出與指標缺值
     test_models ..> BacktestResult : 績效指標與空曲線防護
-    test_backtest ..> BacktestEngine : 成交規則、停損、暖身
+    test_backtest ..> BacktestEngine : 成交規則、反手、停損、可見歷史、暖身
+    test_strategy ..> Strategy : 交叉事件判定與反手訊號選擇
     test_sync ..> sync : 漂移／缺口偵測與回補戳記
     test_fetcher ..> StockDataFetcher : 代碼正規化與還原權值回推
     test_html_report ..> html_report : 逃脫與匯出路徑過濾

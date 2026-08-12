@@ -10,7 +10,6 @@ from src.quant.errors import InsufficientDataError
 INITIAL_CAPITAL = 100_000
 STOP_LOSS = 0.15
 MIN_BACKTEST_ROWS = 2  # Fewer usable rows than this cannot produce a signal and a fill
-TRADING_DAYS_PER_WEEK = 5
 
 # Canonical backtest periods in calendar days.
 # The Discord command exposes a subset of these keys;
@@ -22,6 +21,18 @@ PERIOD_DAYS = {
     "6y": 2190, "7y": 2555, "8y": 2920, "9y": 3285, "10y": 3650,
     "max": 36500,
 }
+
+
+def history_window(data: pd.DataFrame, i: int, lookback: int | None) -> pd.DataFrame:
+    """The rows a strategy is shown on bar `i`: at most `lookback` of them, ending at `i`.
+
+    The end is exclusive at `i + 1`, so today is included and tomorrow cannot be — which is
+    what makes lookahead bias structurally impossible rather than a rule strategies must
+    follow. `max` clamps the start at row 0, since a negative start would count from the end
+    and hand over an empty frame. A `lookback` of None asks for everything up to today.
+    """
+    lo = 0 if lookback is None else max(0, i + 1 - lookback)
+    return data.iloc[lo:i + 1]
 
 
 class BacktestEngine:
@@ -38,35 +49,51 @@ class BacktestEngine:
         Indicators need `strategy.warmup` trading rows before their first valid value.
         Fetching only the requested window would spend that warm-up inside the window
         and shorten (or empty) the actual backtest, so ask for the warm-up on top.
+
+        The two requirements stack rather than overlap: `lookback` counts rows that
+        already carry indicator values, so the strategy needs `lookback - 1` of them
+        before the window opens, on top of the raw rows the warm-up itself eats.
+        A `lookback` of None asks for whatever exists and guarantees nothing extra.
         """
-        warmup_calendar_days = math.ceil(self.strategy.warmup * 7 / TRADING_DAYS_PER_WEEK)
-        return period_days + warmup_calendar_days + 7  # +1 week for buffer
+        lookback_rows = self.strategy.lookback or 1
+        preroll_rows = self.strategy.warmup + lookback_rows - 1  # - 1: the lookback counts today itself
+        preroll_calendar_days = math.ceil(preroll_rows * 7 / 5) # 5 trading days per week
+        return period_days + preroll_calendar_days + 7  # +1 week for buffer
 
     def run(self, ticker: str, data: pd.DataFrame, start: date_type | pd.Timestamp | None = None) -> BacktestResult:
         """Iterate over historical data day by day to run the backtest.
 
-        `start` drops everything before it once indicators are computed, so rows
-        fetched purely to warm the indicators up do not count as backtested days.
+        `start` marks where the reported backtest begins. Earlier rows are kept rather
+        than dropped: they no longer count as backtested days, but a strategy's lookback
+        still reaches into them, so the window's first bar sees the same history any
+        later bar would.
         """
         self.cash = float(INITIAL_CAPITAL)
         self.position = None
         self.trades = []
         self.equity = []
+        self.strategy.reset()
         signal = Signal("HOLD", {}, {})
 
         compute_indicators(ticker, data, self.strategy.required_columns)
         data = data.dropna(subset=self.strategy.required_columns)
-        if start is not None:
-            data = data.loc[data.index >= pd.Timestamp(start)]
 
-        if len(data) < MIN_BACKTEST_ROWS:
+        # Two frames: `data` keeps the valid-indicator rows sitting before the window (the NaN
+        # warm-up went with the dropna above), so a lookback slice at the window's first bar can
+        # still reach back past `start`; `window` is the range actually backtested and reported.
+        # `start_pos` is an integer position so a lookback slice can dip below the window.
+        start_pos = int(data.index.searchsorted(pd.Timestamp(start))) if start is not None else 0
+        window = data.iloc[start_pos:]
+
+        if len(window) < MIN_BACKTEST_ROWS:
             raise InsufficientDataError(
-                f"'{ticker}' has only {len(data)} usable rows after the {self.strategy.warmup}-row indicator warm-up."
+                f"'{ticker}' has only {len(window)} usable rows after the {self.strategy.warmup}-row indicator warm-up. "
                 f"Choose a longer backtest period, or backfill more history for this ticker."
             )
 
-        for date, row in data.iterrows():
-            date = pd.Timestamp(date) # pyright: ignore[reportArgumentType]
+        for i in range(start_pos, len(data)):
+            row = data.iloc[i]
+            date = pd.Timestamp(data.index[i])
             price_open = row['Open']
             price_close = row['Close']
 
@@ -81,6 +108,14 @@ class BacktestEngine:
 
             elif signal.action == "EXIT_SHORT" and self.position is not None and self.position.side == "SHORT":
                 self._close_position(ticker, date, price_open, signal)
+
+            elif signal.action == "REVERSE_LONG" and self.position is not None and self.position.side == "SHORT":
+                self._close_position(ticker, date, price_open, signal)
+                self._open_position(date, price_open, signal, "LONG")
+
+            elif signal.action == "REVERSE_SHORT" and self.position is not None and self.position.side == "LONG":
+                self._close_position(ticker, date, price_open, signal)
+                self._open_position(date, price_open, signal, "SHORT")
 
             elif signal.action == "HOLD":
                 pass
@@ -99,18 +134,21 @@ class BacktestEngine:
 
             self.equity.append(self._mark_to_market(price_close))
 
-            # Generate today's signal from the close, to be used the next day
-            signal = self.strategy.signal(row, self.position)
+            # Generate today's signal from the close, to be used the next day. The window is
+            # cut from `data` rather than `window` so the rows before the backtest window stay
+            # reachable on its opening bars.
+            history = history_window(data, i, self.strategy.lookback)
+            signal = self.strategy.signal(history, self.position)
 
         # Force-close any open position at the end of the backtest
         if self.position is not None:
             exit_signal = Signal("EXIT_LONG" if self.position.side == "LONG" else "EXIT_SHORT",
                                  {"end_of_backtest": True},
                                  {})
-            self._close_position(ticker, data.index[-1], data['Close'].iloc[-1], exit_signal)
+            self._close_position(ticker, pd.Timestamp(window.index[-1]), window['Close'].iloc[-1], exit_signal)
 
-        equity_curve = pd.Series(self.equity, index=data.index)
-        return BacktestResult(ticker, self.trades, equity_curve, data)
+        equity_curve = pd.Series(self.equity, index=window.index)
+        return BacktestResult(ticker, self.trades, equity_curve, window)
 
     def _mark_to_market(self, price: float) -> float:
         """Account value at `price`: settled cash plus or minus what the position is worth."""

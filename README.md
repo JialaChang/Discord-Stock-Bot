@@ -148,7 +148,8 @@ uv run pytest   # 執行全部測試
 | `tests/test_models.py` | 單筆交易的金額損益與報酬率、回測績效指標、快照漲跌幅與指標缺值顯示 |
 | `tests/test_sync.py` | 批次資料拆解、還原收盤價漂移與歷史缺口偵測、回補時間戳 |
 | `tests/test_fetcher.py` | 代碼正規化（含 `.TW` / `.TWO` / dash 形式）、還原權值回推、異常列處理 |
-| `tests/test_backtest.py` | 訊號隔日開盤成交、整股倉位計算、多空停損成交價、逐筆損益與權益曲線一致、指標暖身、資料不足例外 |
+| `tests/test_backtest.py` | 訊號隔日開盤成交、平倉反手、策略可見歷史區間、整股倉位計算、多空停損成交價、逐筆損益與權益曲線一致、指標暖身、資料不足例外 |
+| `tests/test_strategy.py` | 交叉事件判定（含兩線貼合與假交叉）、反手訊號選擇、單輪狀態重置、RSI 門檻讀值 |
 | `tests/test_html_report.py` | 報表逃脫、匯出檔名過濾、數值格式化 |
 | `tests/test_bot_view.py` | Embed 標題組裝 |
 

@@ -86,12 +86,16 @@ yfinance → SQLite 的**寫入**路徑，由兩支回補腳本共用，統一�
 
 ### `Strategy` (`src/quant/strategy.py`)
 
-抽象基底，子類實作 `signal()` 並宣告 `required_columns` 與 `warmup`。
+抽象基底，子類實作 `signal(history, position)` 並宣告 `required_columns`、`warmup` 與 `lookback`。路徑相依的狀態置於 `reset()`，由引擎於每輪回測前呼叫。
 
-| 類別 | `required_columns` | `warmup` | 策略 |
-|------|--------------------|----------|------|
-| `RSIStrategy` | `["RSI"]` | 14 | RSI 超買 / 超賣 |
-| `EMAStrategy` | `["EMA_5", "EMA_20"]` | 20 | EMA5/20 交叉 |
+| 類別 | `required_columns` | `warmup` | `lookback` | 策略 |
+|------|--------------------|----------|------------|------|
+| `RSIStrategy` | `["RSI"]` | 14 | 1 | RSI 超買 / 超賣 |
+| `EMAStrategy` | `["EMA_5", "EMA_20"]` | 20 | 2 | EMA5/20 交叉 |
+
+> **交叉是事件而非狀態，且無法僅由相鄰兩列判定。** `低 → 相等 → 高`（真交叉）與 `高 → 相等 → 高`（貼合後折返）在兩列的視野下是相同的輸入，故 `EMAStrategy` 於 `reset()` 記住上一次兩線嚴格分開時何者在上，`lookback = 2` 僅用於在首根 K 補上初始記憶。
+
+> **能寫成欄位者留在 `compute_indicators` 向量化計算一次。** `history` 供路徑相依的邏輯使用（進場後最高價、部位年齡），而非讓策略每根 K 重算一次本質上是指標的東西。
 
 ### `BacktestEngine` (`src/quant/backtest.py`)
 
@@ -107,7 +111,12 @@ yfinance → SQLite 的**寫入**路徑，由兩支回補腳本共用，統一�
 
 - 只計算並 `dropna` 策略宣告的 `required_columns`
 - 以現金與整股部位記帳（`cash` + `_mark_to_market()`），支援做多 / 做空
+- `REVERSE_LONG` / `REVERSE_SHORT` 於同一筆開盤成交中平掉反向倉並開立新倉
 - 結束時未平倉部位以最後一日收盤強制平倉
+
+> **`run()` 同時持有兩個 DataFrame。** `data` 為算完指標並 `dropna` 後的全部列，`window` 為 `start` 之後實際回測並寫入報表的區間；策略每根 K 收到的 `history_window(data, i, lookback)` 切自前者，區間首根 K 因而仍能回看 `start` 之前。
+
+> **策略可見的歷史右端恆為當日。** `history_window` 取 `i + 1` 為開區間，前視偏誤於構造上即不可能發生，無須仰賴策略自律。
 
 > **指標暖身另行取得，不佔用回測區間。** 呼叫端依 `required_history_days(period_days)` 決定取得天數並將 `start` 傳入 `run()`，待指標計算完成後才截去暖身段。若僅取得使用者指定的區間，短週期回測的可用列數將被暖身消耗殆盡。資料不足時拋出 `InsufficientDataError`，其訊息會原文回覆使用者，故須寫明處置方式。
 
@@ -213,6 +222,8 @@ Embed 所需的最小快照。`previous_close` 亦供盤中圖著色使用。`rs
 
 回測執行規則以 `ScriptedStrategy` 逐根 K 棒驅動引擎，使進出場時點與成交價可精確指定，不受任何真實指標數值影響。
 
+策略決策則於 `test_strategy.py` 直接餵入手寫的指標列驗證。有狀態的策略無法由單次呼叫判定，故以 `replay()` 逐根重播；其切片一律取自引擎的 `history_window`，測試因而不會漂移成驗證一個引擎已不再提供的輸入。
+
 本文所述設計規則各有對應測試守護：
 
 | 設計規則 | 守護測試 |
@@ -222,8 +233,12 @@ Embed 所需的最小快照。`previous_close` 亦供盤中圖著色使用。`rs
 | 逐筆損益總和等於最終權益 | `test_backtest.py::TestEquityCurve` |
 | 漲跌幅由前收導出；RSI 缺值顯示 `N/A` | `test_models.py::TestStockSnapshot` |
 | 訊號於當日收盤產生、隔日開盤成交 | `test_backtest.py::TestOrderExecution` |
+| 反手於同一開盤價平舊倉並開新倉 | `test_backtest.py::TestReversal` |
 | 停損以停損價成交，跳空則以開盤價成交 | `test_backtest.py::TestStopLoss` |
 | 指標暖身另行取得，不佔用回測區間 | `test_backtest.py::TestIndicatorWarmup` |
+| 策略僅見至多 `lookback` 列且右端恆為當日 | `test_backtest.py::TestHistoryWindow`、`TestStrategyHistory` |
+| 單輪策略狀態不跨輪殘留 | `test_backtest.py::TestStrategyLifecycle` |
+| 交叉為事件，貼合後折返不觸發訊號 | `test_strategy.py::TestEMATouchingLines` |
 | `needs_full_refresh` 的缺口檢查先於漂移比對 | `test_sync.py::TestNeedsFullRefresh` |
 | 僅成功寫入者蓋上回補戳記 | `test_sync.py::TestBackfillStamps` |
 | 代碼正規化；未收錄的帶點代碼原樣送出 | `test_fetcher.py::TestTickerNormalization` |
