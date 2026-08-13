@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 CHUNK_SIZE = 50
 BACKFILL_YEARS = 10
 REFRESH_AFTER_DAYS = 180  # Safety net: redo a backfill this long after the last one
+MIN_BATCH_INTERVAL = 10  # Seconds between the starts of two consecutive downloads
 
 
 def backfill_history(period: int, tickers: list[str] | None = None, force: bool = False):
@@ -35,6 +36,7 @@ def backfill_history(period: int, tickers: list[str] | None = None, force: bool 
             total_success = 0
 
             for i in range(0, total_stocks, CHUNK_SIZE):
+                batch_started = time.monotonic()
                 chunk_tickers = tickers[i : i + CHUNK_SIZE]
                 logger.info(f"Downloading batch {i+1} ~ {min(i + CHUNK_SIZE, total_stocks)}...")
 
@@ -64,7 +66,7 @@ def backfill_history(period: int, tickers: list[str] | None = None, force: bool 
                 logger.info(f"Batch write complete, wrote historical data for {len(written)}/{len(chunk_tickers)} stocks!")
                 # Long-period payloads are large, so use a longer sleep to avoid the YF server refusing connections
                 if i + CHUNK_SIZE < total_stocks:
-                    time.sleep(10)
+                    time.sleep(max(0, MIN_BATCH_INTERVAL - (time.monotonic() - batch_started)))
 
             logger.info(f"Historical backfill complete, wrote historical data for {total_success}/{total_stocks} stocks!")
 

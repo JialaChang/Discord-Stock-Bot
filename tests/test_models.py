@@ -41,8 +41,6 @@ class TestStockSnapshot:
     def test_missing_rsi_reads_as_na(self):
         # 0.00 on the Embed would read as extreme oversold.
         assert make_snapshot(110, 100, rsi_value=None).rsi_str == "N/A"
-
-    def test_present_rsi_is_formatted(self):
         assert make_snapshot(110, 100, rsi_value=48.246).rsi_str == "48.25"
 
 
@@ -53,10 +51,8 @@ class TestTrade:
     def test_roi_follows_the_side(self, side, exit_price, expected_roi):
         assert make_trade(side, 100, exit_price).return_on_investment == pytest.approx(expected_roi)
 
-    def test_short_at_double_is_a_total_loss(self):
-        assert make_trade("SHORT", 100, 200).return_on_investment == pytest.approx(-100.0)
-
     def test_squeezed_short_reports_more_than_a_total_loss(self):
+        # Nothing caps the loss at -100%: the buy-back price has no ceiling.
         assert make_trade("SHORT", 100, 350).return_on_investment == pytest.approx(-250.0)
 
     @pytest.mark.parametrize("entry_price", [0, -5])

@@ -74,19 +74,9 @@ def extract_ticker_frame(data: pd.DataFrame, ticker: str) -> pd.DataFrame:
 
 def records_from_frame(ticker: str, frame: pd.DataFrame) -> list[tuple]:
     """Convert a ticker's OHLCV frame into upsert parameter tuples."""
-    return [
-        (
-            ticker,
-            pd.Timestamp(index).strftime('%Y-%m-%d'), # pyright: ignore[reportArgumentType]
-            float(row['Open']), # pyright: ignore[reportArgumentType]
-            float(row['High']), # pyright: ignore[reportArgumentType]
-            float(row['Low']), # pyright: ignore[reportArgumentType]
-            float(row['Close']), # pyright: ignore[reportArgumentType]
-            float(row['Adj Close']), # pyright: ignore[reportArgumentType]
-            float(row['Volume']), # pyright: ignore[reportArgumentType]
-        )
-        for index, row in frame.iterrows()
-    ]
+    dates = pd.DatetimeIndex(frame.index).strftime('%Y-%m-%d')
+    columns = (frame[name].to_numpy(dtype=float) for name in OHLCV_COLUMNS)
+    return list(zip([ticker] * len(frame), dates, *columns))
 
 
 def upsert_records(conn: sqlite3.Connection, records: list[tuple]) -> None:

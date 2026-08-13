@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 100
 BACKFILL_YEARS = 10
+MIN_BATCH_INTERVAL = 3  # Seconds between the starts of two consecutive downloads
 
 
 def update_stock_data() -> list[str]:
@@ -34,6 +35,7 @@ def update_stock_data() -> list[str]:
 
             # Request in batches to lower peak memory usage and avoid hitting the API rate limit
             for i in range(0, total_stocks, CHUNK_SIZE):
+                batch_started = time.monotonic()
                 success_count = 0
                 chunk_tickers = tickers[i : i + CHUNK_SIZE]
                 logger.info(f"Updating batch {i+1} ~ {min(i+CHUNK_SIZE, total_stocks)}...")
@@ -66,7 +68,7 @@ def update_stock_data() -> list[str]:
                 logger.info(f"Batch write complete, wrote latest data for {success_count}/{len(chunk_tickers)} stocks!")
                 # Rate-limit between batches to avoid getting blocked by yfinance from too many consecutive requests
                 if i + CHUNK_SIZE < total_stocks:
-                    time.sleep(3)
+                    time.sleep(max(0, MIN_BATCH_INTERVAL - (time.monotonic() - batch_started)))
 
             logger.info(f"Daily update complete, wrote {total_success}/{total_stocks} stocks to the database!")
 
