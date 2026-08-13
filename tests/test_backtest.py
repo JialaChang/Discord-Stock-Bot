@@ -62,7 +62,7 @@ class TestOrderExecution:
 
         trade = result.trades[-1]
         assert trade.exit_price == 130
-        assert trade.exit_signal.conditions == {"end_of_backtest": True}
+        assert trade.exit_signal.conditions == {"End of backtest": True}
 
     def test_entry_at_an_unusable_price_is_skipped(self):
         # A zero fill price would make every later ratio meaningless.
@@ -104,7 +104,7 @@ class TestStopLoss:
 
         trade = result.trades[0]
         assert trade.exit_price == pytest.approx(100 * (1 - STOP_LOSS))
-        assert trade.exit_signal.conditions == {"stop_loss": True}
+        assert trade.exit_signal.conditions == {"Stop loss": True}
 
     def test_long_stop_fills_at_the_open_when_the_price_gaps_below_it(self):
         # Gapping to 70 means the 85 stop was never available; fill where it opened.
@@ -121,7 +121,7 @@ class TestStopLoss:
 
         trade = result.trades[0]
         assert trade.exit_price == pytest.approx(100 * (1 + STOP_LOSS))
-        assert trade.exit_signal.conditions == {"stop_loss": True}
+        assert trade.exit_signal.conditions == {"Stop loss": True}
 
     def test_short_stop_fills_at_the_open_when_the_price_gaps_above_it(self):
         data = make_ohlcv([100, 100, 140], opens=[100, 100, 140],
@@ -205,7 +205,7 @@ class TestReversal:
         result = BacktestEngine(ScriptedStrategy(["ENTER_LONG", "REVERSE_LONG"])).run("X", data)
 
         assert result.trade_count == 1
-        assert result.trades[0].exit_signal.conditions == {"end_of_backtest": True}
+        assert result.trades[0].exit_signal.conditions == {"End of backtest": True}
 
     def test_a_crossover_strategy_alternates_sides_without_going_flat(self):
         # Falling, rising, falling. The opening leg leaves EMA_5 under EMA_20 by the time the
@@ -216,8 +216,8 @@ class TestReversal:
         result = BacktestEngine(EMAStrategy()).run("X", make_ohlcv(closes))
 
         assert [t.side for t in result.trades] == ["LONG", "SHORT"]
-        assert result.trades[0].entry_signal.conditions == {"ema_golden_cross": True}
-        assert result.trades[0].exit_signal.conditions == {"ema_death_cross": True}
+        assert result.trades[0].entry_signal.conditions == {"EMA golden cross": True}
+        assert result.trades[0].exit_signal.conditions == {"EMA death cross": True}
         assert result.trades[0].exit_date == result.trades[1].entry_date
 
 
@@ -248,20 +248,14 @@ class TestHistoryWindow:
 
 class TestStrategyHistory:
     def test_the_strategy_sees_lookback_rows_ending_at_today(self):
+        # The last row being today's is the one guarantee that makes lookahead bias
+        # structurally impossible, whatever a strategy does with the rows it is handed.
         data = make_ohlcv([100] * 10)
         strategy = RecordingStrategy(lookback=3)
         BacktestEngine(strategy).run("X", data)
 
         assert [len(h) for h in strategy.seen] == [1, 2, 3, 3, 3, 3, 3, 3, 3, 3]
         assert [h.index[-1] for h in strategy.seen] == list(data.index)
-
-    def test_history_never_reaches_past_today(self):
-        # The one guarantee that makes lookahead bias structurally impossible.
-        data = make_ohlcv([100] * 10)
-        strategy = RecordingStrategy(lookback=4)
-        BacktestEngine(strategy).run("X", data)
-
-        assert all(h.index.max() == data.index[i] for i, h in enumerate(strategy.seen))
 
     def test_the_windows_first_bar_looks_back_before_start(self):
         # Rows before `start` are kept precisely so the opening bar is not short-changed.
@@ -315,9 +309,6 @@ class TestStrategyLifecycle:
 
 
 class TestIndicatorWarmup:
-    def test_required_history_days_asks_for_more_than_the_window(self):
-        assert BacktestEngine(EMAStrategy()).required_history_days(30) > 30
-
     def test_a_longer_warmup_asks_for_more_history(self):
         rsi = BacktestEngine(RSIStrategy()).required_history_days(30)   # warmup 14
         ema = BacktestEngine(EMAStrategy()).required_history_days(30)   # warmup 20

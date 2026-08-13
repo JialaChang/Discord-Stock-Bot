@@ -2,8 +2,13 @@ import discord
 from discord.ui import Button, View
 import io
 import logging
+from datetime import datetime
+
+import pandas as pd
+import pandas_ta as pta
 
 from src.models import StockSnapshot, BacktestResult
+from src.quant import InsufficientDataError
 
 
 logger = logging.getLogger(__name__)
@@ -12,6 +17,50 @@ logger = logging.getLogger(__name__)
 def display_name(name: str, ticker: str) -> str:
     """`name (ticker)`, or the bare ticker when no name is known."""
     return f"{name} ({ticker})" if name != ticker else ticker
+
+
+def build_snapshot(ticker: str, name: str, history_data: pd.DataFrame,
+                   intraday_data: pd.DataFrame, latest_time: datetime) -> StockSnapshot:
+    """Assemble everything the `/stock` Embed shows from the frames the fetcher returned.
+
+    The one indicator needed here is computed locally rather than through
+    `compute_indicators`, which writes in place: both frames go on to the chart layer
+    afterwards, and what gets overlaid on a chart is that layer's own decision.
+    """
+    if len(history_data) < 2:
+        raise InsufficientDataError(f"'{ticker}' has fewer than two historical rows and cannot be processed...")
+
+    prices = history_data['Close']
+    rsi = pta.rsi(prices, length=14)  # pyright: ignore[reportPrivateImportUsage, reportCallIssue]
+
+    # Intraday wins when the market has traded today; otherwise the last close stands in
+    if not intraday_data.empty:
+        curr_price = intraday_data['Close'].iloc[-1]
+        curr_date = pd.to_datetime(intraday_data.index[-1]).date()
+    else:
+        curr_price = prices.iloc[-1]
+        curr_date = pd.to_datetime(history_data.index[-1]).date()
+
+    # The most recent close strictly before today, which both the Embed's change %
+    # and the intraday chart's colouring measure against
+    past_data = history_data[pd.to_datetime(history_data.index).date < curr_date]
+    prev_price = float(past_data['Close'].iloc[-1] if not past_data.empty else prices.iloc[-2])
+
+    def last(series: pd.Series | None) -> float | None:
+        """Latest value of a series, None when there is nothing usable to show."""
+        if series is None or series.empty:
+            return None
+        val = series.iloc[-1]
+        return float(val) if pd.notna(val) else None
+
+    return StockSnapshot(
+        ticker=ticker,
+        name=name,
+        current_price=float(curr_price),
+        previous_close=prev_price,
+        rsi_value=last(rsi),
+        latest_time=latest_time
+    )
 
 
 class DiscordStockChart(View):

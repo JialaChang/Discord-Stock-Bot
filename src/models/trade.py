@@ -12,8 +12,8 @@ class Signal:
     """A buy/sell signal along with the strategy conditions that produced it."""
     action: Literal["ENTER_LONG", "EXIT_LONG", "ENTER_SHORT", "EXIT_SHORT",
                     "REVERSE_LONG", "REVERSE_SHORT", "HOLD"]
-    conditions: dict[str, bool]  # Whether each sub-condition holds
-    values: dict[str, float]     # Indicator values at trigger time
+    conditions: dict[str, bool]
+    values: dict[str, float]  # Indicator values at trigger time
 
 
 @dataclass

@@ -1,1 +1,1 @@
-from .dc_bot_view import DiscordStockChart, send_stock_response, send_backtest_response
+from .dc_bot_view import DiscordStockChart, build_snapshot, send_stock_response, send_backtest_response

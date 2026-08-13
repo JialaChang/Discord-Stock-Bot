@@ -7,9 +7,10 @@ from dotenv import load_dotenv
 import asyncio
 
 from src.data import StockDataFetcher
-from src.quant import compute_indicators_for_discord, BacktestEngine, RSIStrategy, EMAStrategy, PERIOD_DAYS, InsufficientDataError
+from src.quant import (BacktestEngine, RSIStrategy, EMAStrategy, PERIOD_DAYS,
+                       InsufficientDataError, gated_strategy, voting_strategy)
 from src.utils import generate_history_chart, generate_intraday_chart, generate_backtest_chart
-from src.bot import send_stock_response, send_backtest_response
+from src.bot import build_snapshot, send_stock_response, send_backtest_response
 
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,9 @@ bot = commands.Bot(command_prefix='$', intents=intents)
 async def on_ready():
     if GUILD:
         bot.tree.copy_global_to(guild=GUILD)
-    await bot.tree.sync()
+        await bot.tree.sync(guild=GUILD)
+    else:
+        await bot.tree.sync()
     logger.info(f"Discord Bot Login Identity --> {bot.user}")
 
 
@@ -82,7 +85,7 @@ async def analyze_stock(interaction: discord.Interaction, ticker: str):
         latest_time = await asyncio.to_thread(fetcher.fetch_latest_time)
 
         snapshot = await asyncio.to_thread(
-            compute_indicators_for_discord, stock_ticker, stock_name, history_data, intraday_data, latest_time
+            build_snapshot, stock_ticker, stock_name, history_data, intraday_data, latest_time
         )
 
         chart_jobs = [asyncio.to_thread(generate_history_chart, stock_ticker, history_data)]
@@ -107,7 +110,8 @@ async def analyze_stock(interaction: discord.Interaction, ticker: str):
         await interaction.followup.send("An error occurred, please try again later or check that the ticker is correct...")
 
 
-STRATEGIES = {"RSI": RSIStrategy, "EMA": EMAStrategy}
+STRATEGIES = {"RSI": RSIStrategy, "EMA": EMAStrategy,
+              "Gated": gated_strategy, "Vote": voting_strategy}
 # A subset of the canonical periods in src.quant
 BOT_PERIODS = ["1mo", "3mo", "6mo", "1y", "2y", "3y", "5y", "10y"]
 

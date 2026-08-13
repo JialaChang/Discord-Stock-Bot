@@ -2,8 +2,10 @@
 import pandas as pd
 import pandas_ta as pta
 
-from src.models import StockSnapshot
 from src.quant.errors import InsufficientDataError
+
+
+MACD_Z_WINDOW = 60  # Rows the MACD line's own scale is measured over, one quarter of trading
 
 
 def compute_indicators(ticker: str, data: pd.DataFrame, columns: list[str] | None = None) -> None:
@@ -57,13 +59,21 @@ def compute_indicators(ticker: str, data: pd.DataFrame, columns: list[str] | Non
     # DIF Line = EMA(12) - EMA(26)
     # DEM Line = EMA(MACD, 9)
     # OSC (histogram) = DIF - DEM
-    # Golden cross (DIF crosses above DEM) is a buy signal; death cross (DIF crosses below DEM) is a sell signal.
-    # Crosses above the zero line are stronger than below; an OSC bar flipping negative to positive means momentum turns bullish.
-    if should('MACD_dif', 'MACD_dem', 'MACD_osc'):
+    # Golden cross (DIF crosses above DEM) is a buy signal;
+    # death cross (DIF crosses below DEM) is a sell signal.
+    # Crosses above the zero line are stronger than below;
+    # OSC bar flipping negative to positive means momentum turns bullish.
+
+    # Z is DIF in its own recent standard deviations, comparable across tickers and price
+    # levels. Not mean-centred on purpose: the zero line is the reference that carries meaning.
+    if should('MACD_dif', 'MACD_dem', 'MACD_osc', 'MACD_z'):
         macd_df = pta.macd(close, fast=12, slow=26, signal=9)
         data['MACD_dif'] = macd_df['MACD_12_26_9']
         data['MACD_dem'] = macd_df['MACDs_12_26_9']
         data['MACD_osc'] = macd_df['MACDh_12_26_9']
+        scale = data['MACD_dif'].rolling(MACD_Z_WINDOW).std()
+        # A flat stretch has no scale to divide by; `== 0` spares the leading NaNs for warm-up.
+        data['MACD_z'] = (data['MACD_dif'] / scale).mask(scale == 0, 0.0)
 
     # ── Stochastic Oscillator (KD) ──────────────────────────────
     # Position of the close within the recent 9-day high/low range.
@@ -86,42 +96,3 @@ def compute_indicators(ticker: str, data: pd.DataFrame, columns: list[str] | Non
         data['BB_W'] = bb_df['BBB_20_2.0_2.0']
 
 
-def compute_indicators_for_discord(ticker: str, name: str, history_data: pd.DataFrame, intraday_data: pd.DataFrame, latest_time) -> StockSnapshot:
-    """
-    For Discord display: compute the minimal indicator set needed by the Embed and assemble a StockSnapshot.\n
-    `history_data` is left untouched; chart overlays are the chart layer's own business.
-    """
-    if len(history_data) < 2:
-        raise InsufficientDataError(f"'{ticker}' has fewer than two historical rows and cannot be processed...")
-
-    prices = history_data['Close']
-    rsi = pta.rsi(prices, length=14)
-
-    # Current price and its reference price
-    if not intraday_data.empty:
-        curr_price = intraday_data['Close'].iloc[-1]
-        curr_date = pd.to_datetime(intraday_data.index[-1]).date()
-    else:
-        curr_price = prices.iloc[-1]
-        curr_date = pd.to_datetime(history_data.index[-1]).date()
-
-    # The most recent close strictly before today;
-    # the Embed's change % and the intraday chart's coloring both measure against it.
-    past_data = history_data[pd.to_datetime(history_data.index).date < curr_date]
-    prev_price = float(past_data['Close'].iloc[-1] if not past_data.empty else prices.iloc[-2])
-
-    # Take the latest value, None when unavailable
-    def last(series: pd.Series | None) -> float | None:
-        if series is None or series.empty:
-            return None
-        val = series.iloc[-1]
-        return float(val) if pd.notna(val) else None
-
-    return StockSnapshot(
-        ticker=ticker,
-        name=name,
-        current_price=float(curr_price),
-        previous_close=prev_price,
-        rsi_value=last(rsi),
-        latest_time=latest_time
-    )

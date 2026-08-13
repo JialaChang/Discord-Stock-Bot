@@ -125,12 +125,12 @@ class BacktestEngine:
                 if self.position.side == "LONG" and row['Low'] / self.position.entry_price < (1 - STOP_LOSS):
                     stop_price = self.position.entry_price * (1 - STOP_LOSS)
                     stop_price = min(stop_price, price_open)  # Fill at the open if it gaps below the stop price
-                    self._close_position(ticker, date, stop_price, Signal("EXIT_LONG", {"stop_loss": True}, {}))
+                    self._close_position(ticker, date, stop_price, Signal("EXIT_LONG", {"Stop loss": True}, {}))
 
                 elif self.position.side == "SHORT" and row['High'] / self.position.entry_price > (1 + STOP_LOSS):
                     stop_price = self.position.entry_price * (1 + STOP_LOSS)
                     stop_price = max(stop_price, price_open)  # Fill at the open if it gaps above the stop price
-                    self._close_position(ticker, date, stop_price, Signal("EXIT_SHORT", {"stop_loss": True}, {}))
+                    self._close_position(ticker, date, stop_price, Signal("EXIT_SHORT", {"Stop loss": True}, {}))
 
             self.equity.append(self._mark_to_market(price_close))
 
@@ -143,7 +143,7 @@ class BacktestEngine:
         # Force-close any open position at the end of the backtest
         if self.position is not None:
             exit_signal = Signal("EXIT_LONG" if self.position.side == "LONG" else "EXIT_SHORT",
-                                 {"end_of_backtest": True},
+                                 {"End of backtest": True},
                                  {})
             self._close_position(ticker, pd.Timestamp(window.index[-1]), window['Close'].iloc[-1], exit_signal)
 
@@ -270,13 +270,15 @@ class BacktestEngine:
 if __name__ == "__main__":
     import logging
     from src.data import StockDataFetcher
-    from src.quant import RSIStrategy, EMAStrategy
+    from src.quant import RSIStrategy, EMAStrategy, gated_strategy, voting_strategy
 
     logging.basicConfig(level=logging.WARNING)
 
     STRATEGIES = {
         "1": ("RSI", RSIStrategy),
         "2": ("EMA", EMAStrategy),
+        "3": ("Gated", gated_strategy),
+        "4": ("Vote", voting_strategy),
     }
 
     while True:
@@ -299,7 +301,8 @@ if __name__ == "__main__":
 
         print("-" * 50)
         while True:
-            strategy_input = input("╎ Choose a strategy [1=RSI, 2=EMA]: ").strip()
+            prompt = ', '.join(f"{key}={label}" for key, (label, _) in STRATEGIES.items())
+            strategy_input = input(f"╎ Choose a strategy [{prompt}]: ").strip()
             if strategy_input in STRATEGIES:
                 break
             print(f"╎ Invalid input, please try again...")

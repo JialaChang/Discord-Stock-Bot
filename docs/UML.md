@@ -1,6 +1,6 @@
 # 模組相依關係
 
-依目錄結構拆成 6 張圖，呈現類別與模組間的相依方向。
+依目錄結構拆成 7 張圖，呈現類別與模組間的相依方向。
 
 完整簽章、參數語意與行為規則見 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
@@ -75,7 +75,91 @@ classDiagram
     BacktestResult --> Trade : 包含 list
 ```
 
-## 2. 技術分析與回測引擎 (`src/quant/`)
+## 2. 規則層 (`src/quant/rule.py`)
+
+規則只表達偏向，不知道當前部位；`CompositeStrategy` 依角色將其分桶。
+
+```mermaid
+classDiagram
+    direction TB
+
+    class Rule {
+        <<Abstract>>
+        +str name
+        +list~str~ required_columns
+        +int warmup
+        +int_or_None lookback
+        +reset() None
+        +bias(history) float
+    }
+
+    class CrossRule {
+        <<Abstract>>
+        +str fast_column
+        +str slow_column
+        +int_or_None precision
+        +reset() None
+    }
+
+    class _CrossTracker {
+        +reset() None
+        +seed(fast, slow) None
+        +update(fast, slow) int
+    }
+
+    class SMATrend {
+        +int length
+        +float band
+        +bias(history) float
+    }
+
+    class MACDZeroLine {
+        +float full
+        +bias(history) float
+    }
+
+    class RSIReversal {
+        +float oversold
+        +float overbought
+        +bias(history) float
+    }
+
+    class StochCross {
+        +float low
+        +float high
+        +bias(history) float
+    }
+
+    class EMACross {
+        +bias(history) float
+    }
+
+    class BollingerBand {
+        +bias(history) float
+    }
+
+    class MACDSignalCross {
+        +bias(history) float
+    }
+
+    CrossRule --|> Rule
+    SMATrend --|> Rule
+    MACDZeroLine --|> Rule
+    RSIReversal --|> Rule
+    BollingerBand --|> Rule
+    StochCross --|> CrossRule
+    EMACross --|> CrossRule
+    MACDSignalCross --|> CrossRule
+    CrossRule --> _CrossTracker : 持有
+```
+
+| 桶 | 規則 |
+|----|------|
+| 趨勢 | `SMATrend`、`MACDZeroLine` |
+| 進場 | `RSIReversal`、`StochCross`、`EMACross` |
+| 出場 | `BollingerBand`、`MACDSignalCross` |
+
+## 3. 技術分析與回測引擎 (`src/quant/`)
 
 ```mermaid
 classDiagram
@@ -83,8 +167,8 @@ classDiagram
 
     class indicator {
         <<Module: quant/indicator>>
+        +int MACD_Z_WINDOW
         +compute_indicators(ticker, data, columns) None
-        +compute_indicators_for_discord(ticker, name, history_data, intraday_data, latest_time) StockSnapshot
     }
 
     class Strategy {
@@ -103,6 +187,21 @@ classDiagram
     class EMAStrategy {
         +reset() None
         +signal(history, position) Signal
+    }
+
+    class CompositeStrategy {
+        +float trend_enter
+        +float trend_exit
+        +float entry_threshold
+        +float exit_threshold
+        +reset() None
+        +signal(history, position) Signal
+    }
+
+    class strategy_module {
+        <<Module: quant/strategy>>
+        +gated_strategy() CompositeStrategy
+        +voting_strategy() CompositeStrategy
     }
 
     class backtest_module {
@@ -132,8 +231,11 @@ classDiagram
     class html_report {
         <<見「Bot 與輸出工具」圖>>
     }
-    class StockSnapshot {
-        <<見「資料模型」圖>>
+    class Rule {
+        <<見「規則層」圖>>
+    }
+    class EMACross {
+        <<見「規則層」圖>>
     }
     class Signal {
         <<見「資料模型」圖>>
@@ -150,8 +252,11 @@ classDiagram
 
     RSIStrategy --|> Strategy
     EMAStrategy --|> Strategy
+    CompositeStrategy --|> Strategy
+    EMAStrategy --> EMACross : 持有
+    CompositeStrategy --> Rule : 依角色分桶持有
+    strategy_module ..> CompositeStrategy : 預設組合
     Strategy ..> Signal : 回傳
-    indicator ..> StockSnapshot : 回傳
     indicator ..> InsufficientDataError : 拋出
     BacktestEngine --> Strategy : 持有
     BacktestEngine --> indicator : 計算指標
@@ -165,7 +270,7 @@ classDiagram
 
 引擎不相依於任何資料來源，`run()` 接收呼叫端備妥的 DataFrame。
 
-## 3. Bot 與輸出工具 (`src/bot/`、`src/utils/`)
+## 4. Bot 與輸出工具 (`src/bot/`、`src/utils/`)
 
 `html_report` 不相依於 Discord，其使用者為 `BacktestEngine` 與 `database`；列於此圖僅因同屬 `src/utils/`。
 
@@ -185,6 +290,7 @@ classDiagram
     class dc_bot_view {
         <<Module: bot/dc_bot_view>>
         +display_name(name, ticker) str
+        +build_snapshot(ticker, name, history_data, intraday_data, latest_time) StockSnapshot
         +send_stock_response(interaction, snapshot, history_bytes, intraday_bytes)
         +send_backtest_response(interaction, result, stock_name, strategy_label, chart_bytes)
     }
@@ -217,10 +323,13 @@ classDiagram
     class StockDataFetcher {
         <<見「資料存取與排程腳本」圖>>
     }
-    class indicator {
+    class strategy_module {
         <<見「技術分析與回測引擎」圖>>
     }
     class BacktestEngine {
+        <<見「技術分析與回測引擎」圖>>
+    }
+    class InsufficientDataError {
         <<見「技術分析與回測引擎」圖>>
     }
     class StockSnapshot {
@@ -231,17 +340,19 @@ classDiagram
     }
 
     dc_bot --> StockDataFetcher : 實例化
-    dc_bot --> indicator : 計算指標
     dc_bot --> visualizer : 繪製圖表
-    dc_bot --> dc_bot_view : 送出回覆
+    dc_bot --> dc_bot_view : 組裝快照 / 送出回覆
     dc_bot --> BacktestEngine : 執行回測
+    dc_bot --> strategy_module : STRATEGIES 對照表
     dc_bot_view --> DiscordStockChart : 實例化
-    dc_bot_view ..> StockSnapshot : 讀取
+    dc_bot_view ..> StockSnapshot : 組裝與回傳
     dc_bot_view ..> BacktestResult : 讀取
-    visualizer ..> indicator : 計算疊圖
+    dc_bot_view ..> InsufficientDataError : 拋出
 ```
 
-## 4. 儲存層 (`src/database/`)
+`visualizer` 自行計算圖上的均線，不相依於 `indicator`；`dc_bot` 亦不再直接計算指標，Embed 所需的一項由 `dc_bot_view.build_snapshot` 自行取得。
+
+## 5. 儲存層 (`src/database/`)
 
 ```mermaid
 classDiagram
@@ -301,7 +412,7 @@ classDiagram
     daily_prices --> stocks : FK (ticker)
 ```
 
-## 5. 資料存取與排程腳本 (`src/data/`、`scripts/`)
+## 6. 資料存取與排程腳本 (`src/data/`、`scripts/`)
 
 `fetcher` 為讀取門面，`sync` 為寫入路徑，三支腳本一律經由 `sync` 寫入。
 
@@ -386,7 +497,7 @@ classDiagram
     seed_stocks ..> stocks : 寫入
 ```
 
-## 6. 測試 (`tests/`)
+## 7. 測試 (`tests/`)
 
 同時作為覆蓋範圍對照。
 
@@ -435,13 +546,44 @@ classDiagram
         TestIndicatorWarmup
     }
 
+    class StubRule {
+        <<Test Double: tests/test_composite>>
+        +int calls
+        +list~int~ views
+        +reset() None
+        +bias(history) float
+    }
+
     class test_strategy {
         <<Test Module>>
         TestEMACrossDetection
-        TestEMATouchingLines
         TestEMAReversal
-        TestEMARunStart
+        TestEMALifecycle
         TestRSIReadsTheLatestBar
+    }
+
+    class test_rule {
+        <<Test Module>>
+        TestRSIReversal
+        TestSMATrend
+        TestMACDZeroLine
+        TestBollingerBand
+        TestMACDSignalCross
+        TestEMACross
+        TestStochCross
+        TestDeclaredColumnsAndWarmup
+    }
+
+    class test_composite {
+        <<Test Module>>
+        TestEntryNeedsGateAndTrigger
+        TestNoTrendRules
+        TestExit
+        TestGateHysteresis
+        TestEveryRuleSeesEveryBar
+        TestSignalPayload
+        TestDeclarationsAggregate
+        TestPresets
     }
 
     class test_sync {
@@ -470,15 +612,28 @@ classDiagram
     class test_bot_view {
         <<Test Module>>
         TestDisplayName
+        TestSnapshotCurrentPrice
+        TestSnapshotPreviousClose
+        TestSnapshotFields
+        TestSnapshotInputs
     }
 
     class Strategy {
+        <<見「技術分析與回測引擎」圖>>
+    }
+    class CompositeStrategy {
         <<見「技術分析與回測引擎」圖>>
     }
     class BacktestEngine {
         <<見「技術分析與回測引擎」圖>>
     }
     class backtest_module {
+        <<見「技術分析與回測引擎」圖>>
+    }
+    class Rule {
+        <<見「規則層」圖>>
+    }
+    class indicator {
         <<見「技術分析與回測引擎」圖>>
     }
     class Trade {
@@ -505,10 +660,14 @@ classDiagram
 
     ScriptedStrategy --|> Strategy
     RecordingStrategy --|> Strategy
+    StubRule --|> Rule
     test_backtest --> ScriptedStrategy : 驅動引擎
     test_backtest --> RecordingStrategy : 記錄可見歷史
     test_backtest --> conftest
+    test_composite --> StubRule : 給定偏向
     test_strategy --> backtest_module : 沿用 history_window 切片
+    test_rule --> backtest_module : 沿用 history_window 切片
+    test_rule --> conftest
     test_sync --> conftest
     test_fetcher --> conftest
 
@@ -516,9 +675,12 @@ classDiagram
     test_models ..> StockSnapshot : 漲跌幅導出與指標缺值
     test_models ..> BacktestResult : 績效指標與空曲線防護
     test_backtest ..> BacktestEngine : 成交規則、反手、停損、可見歷史、暖身
-    test_strategy ..> Strategy : 交叉事件判定與反手訊號選擇
+    test_strategy ..> Strategy : 交叉方向到訊號的映射
+    test_rule ..> Rule : 偏向讀值與宣告正確性
+    test_rule ..> indicator : 宣告的欄位確實算得出
+    test_composite ..> CompositeStrategy : 分桶、閘門、出場與宣告合併
     test_sync ..> sync : 漂移／缺口偵測與回補戳記
     test_fetcher ..> StockDataFetcher : 代碼正規化與還原權值回推
     test_html_report ..> html_report : 逃脫與匯出路徑過濾
-    test_bot_view ..> dc_bot_view : 標題組裝
+    test_bot_view ..> dc_bot_view : 標題組裝與快照組裝
 ```
