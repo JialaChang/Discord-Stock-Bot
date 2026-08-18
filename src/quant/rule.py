@@ -93,6 +93,51 @@ class CrossRule(Rule):
         return self._tracker.update(fast, slow)
 
 
+# ── Combinators ───────────────────────────────────────────────
+# Wrap another rule rather than reading a column of their own.
+
+class Decay(Rule):
+    """Hold an event rule's opinion for a few bars, fading it geometrically.
+
+    An event rule speaks on the bar it fires and is silent after, so averaging several
+    clears a threshold only when two fire on the *same* bar — coincidence, not agreement.
+    Fading asks whether they agreed within a window, and `half_life` is that window.
+
+    Wrap once and share the wrapper — a composite registers rules by identity and cannot
+    see through it, so two wrappers around one rule march its tracker past real crossings.
+    """
+
+    def __init__(self, rule: Rule, half_life: float = 3.0, floor: float = 0.05) -> None:
+        if half_life <= 0:
+            raise ValueError("A Decay needs a positive half_life; an opinion cannot fade in no time.")
+        self._rule = rule  # Before super(), which calls reset()
+        self._factor = 0.5 ** (1.0 / half_life)
+        self._floor = floor
+        # Declared by the wrapped rule, so the composite computes the columns it needs
+        # and hands it the history it asked for.
+        self.name = rule.name
+        self.required_columns = rule.required_columns
+        self.warmup = rule.warmup
+        self.lookback = rule.lookback
+        super().__init__()
+
+    def reset(self) -> None:
+        self._held = 0.0
+        self._rule.reset()
+
+    def bias(self, history: DataFrame) -> float:
+        # Consulted every bar, expired or not: a cross tracker that misses one ends up
+        # comparing rows either side of a crossing it never saw.
+        fresh = self._rule.bias(history)
+        if fresh != 0.0:
+            self._held = fresh  # Replaces what was held, sign included
+        else:
+            self._held *= self._factor
+            if abs(self._held) < self._floor:
+                self._held = 0.0
+        return self._held
+
+
 # ── Trend rules ───────────────────────────────────────────────
 # Read as a gate by the composite: they say which side may be traded at all.
 

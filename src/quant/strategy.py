@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from pandas import DataFrame
 
 from src.models import Signal, Position, Side
-from src.quant.rule import (BollingerBand, EMACross, MACDSignalCross, MACDZeroLine,
+from src.quant.rule import (BollingerBand, Decay, EMACross, MACDSignalCross, MACDZeroLine,
                             RSIReversal, Rule, SMATrend, StochCross)
 
 
@@ -114,7 +114,7 @@ class CompositeStrategy(Strategy):
                  exit: Sequence[RuleSpec] = (),
                  trend_enter: float = 0.5,
                  trend_exit: float = 0.2,
-                 entry_threshold: float = 0.5,
+                 entry_threshold: float = 0.4,
                  exit_threshold: float = 0.3) -> None:
         self._rules: list[Rule] = []
         self._trend = self._bucket(trend)
@@ -248,9 +248,9 @@ def gated_strategy() -> CompositeStrategy:
     to share the bucket fairly.
     """
     return CompositeStrategy(
-        trend=[SMATrend(60)],
-        entry=[RSIReversal(), StochCross(), EMACross()],
-        exit=[BollingerBand(), MACDSignalCross()],
+        trend=[SMATrend(200)],
+        entry=[RSIReversal(), Decay(StochCross()), Decay(EMACross())],
+        exit=[BollingerBand(), Decay(MACDSignalCross())],
     )
 
 

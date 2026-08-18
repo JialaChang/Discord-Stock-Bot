@@ -142,15 +142,24 @@ classDiagram
         +bias(history) float
     }
 
+    class Decay {
+        +float half_life
+        +float floor
+        +reset() None
+        +bias(history) float
+    }
+
     CrossRule --|> Rule
     SMATrend --|> Rule
     MACDZeroLine --|> Rule
     RSIReversal --|> Rule
     BollingerBand --|> Rule
+    Decay --|> Rule
     StochCross --|> CrossRule
     EMACross --|> CrossRule
     MACDSignalCross --|> CrossRule
     CrossRule --> _CrossTracker : 持有
+    Decay --> Rule : 包裝並轉發宣告
 ```
 
 | 桶 | 規則 |
@@ -158,6 +167,8 @@ classDiagram
 | 趨勢 | `SMATrend`、`MACDZeroLine` |
 | 進場 | `RSIReversal`、`StochCross`、`EMACross` |
 | 出場 | `BollingerBand`、`MACDSignalCross` |
+
+`Decay` 不屬任何桶，而是包裝事件規則後置入桶中；`gated_strategy()` 以此包裝 `StochCross`、`EMACross` 與 `MACDSignalCross`。
 
 ## 3. 技術分析與回測引擎 (`src/quant/`)
 
@@ -571,6 +582,7 @@ classDiagram
         TestMACDSignalCross
         TestEMACross
         TestStochCross
+        TestDecay
         TestDeclaredColumnsAndWarmup
     }
 
@@ -584,6 +596,7 @@ classDiagram
         TestSignalPayload
         TestDeclarationsAggregate
         TestPresets
+        TestGatedPresetComposition
     }
 
     class test_sync {

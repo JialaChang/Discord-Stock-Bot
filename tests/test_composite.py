@@ -11,7 +11,9 @@ import pandas as pd
 import pytest
 
 from src.models import Position, Signal
-from src.quant import BacktestEngine, CompositeStrategy, Rule, gated_strategy, voting_strategy
+from src.quant import (BacktestEngine, CompositeStrategy, Decay, Rule, compute_indicators,
+                       gated_strategy, voting_strategy)
+from src.quant.backtest import history_window
 from tests.conftest import make_ohlcv
 
 
@@ -82,13 +84,61 @@ class TestEntryNeedsGateAndTrigger:
         assert act(strategy) == "HOLD"
 
     def test_a_trigger_below_the_threshold_is_not_enough(self):
-        # Two of three rules must agree at the default threshold of 0.5.
+        # Stated against an explicit threshold rather than the shipped default: what is
+        # under test is that the bucket's mean has to reach the bar, not where the bar sits.
+        strategy = CompositeStrategy(
+            trend=[StubRule(1.0)],
+            entry=[StubRule(1.0), StubRule(0.0), StubRule(0.0)],
+            entry_threshold=0.5,
+        )
+
+        assert act(strategy) == "HOLD"
+
+    def test_reaching_the_threshold_exactly_is_enough(self):
+        # Chosen so the mean is exact in binary: a bucket landing a hair under a round
+        # threshold is a floating-point accident, not a decision the composite made.
+        strategy = CompositeStrategy(
+            trend=[StubRule(1.0)],
+            entry=[StubRule(1.0), StubRule(0.5), StubRule(0.0)],
+            entry_threshold=0.5,
+        )
+
+        assert act(strategy) == "ENTER_LONG"
+
+    def test_falling_short_of_the_threshold_is_not(self):
+        strategy = CompositeStrategy(
+            trend=[StubRule(1.0)],
+            entry=[StubRule(1.0), StubRule(0.49), StubRule(0.0)],
+            entry_threshold=0.5,
+        )
+
+        assert act(strategy) == "HOLD"
+
+    def test_the_default_threshold_asks_for_more_than_one_rule(self):
+        # No rule answers above 1.0, so any default above 1/n is what makes the bucket ask
+        # for agreement at all instead of passing whichever rule spoke first. This is the
+        # property worth pinning; the exact level is a tuning decision that may move.
         strategy = CompositeStrategy(
             trend=[StubRule(1.0)],
             entry=[StubRule(1.0), StubRule(0.0), StubRule(0.0)],
         )
 
         assert act(strategy) == "HOLD"
+
+    def test_the_threshold_decides_how_stale_an_agreeing_event_may_be(self):
+        # Paired with `Decay`, the threshold stops being a count of rules and becomes a
+        # window: beside one full opinion, a faded event still carries the bucket while it
+        # is worth `n * threshold - 1`, and stops the bar after it drops below.
+        strategy = CompositeStrategy(
+            trend=[StubRule(1.0)],
+            entry=[StubRule(1.0), Decay(StubRule(1.0, 0.0), half_life=3), StubRule(0.0)],
+            entry_threshold=0.4,
+        )
+
+        actions = [act(strategy) for _ in range(9)]
+
+        assert actions[:7] == ["ENTER_LONG"] * 7   # the firing bar, then six more
+        assert actions[7:] == ["HOLD"] * 2
 
     def test_two_of_three_agreeing_clears_the_threshold(self):
         strategy = CompositeStrategy(
@@ -321,3 +371,31 @@ class TestPresets:
 
         assert len(result.equity_curve) > 0
         assert result.equity_curve.notna().all()
+
+
+class TestGatedPresetComposition:
+    """Which rules the preset fades, read off the biases it reports rather than its buckets.
+
+    An event rule that is wrapped answers with fractions on the bars after it fires; a state
+    rule that is left bare only ever answers at full strength. That difference is visible in
+    `Signal.values`, so the composition can be pinned without reaching into the strategy.
+    """
+
+    def biases(self, name: str) -> list[float]:
+        closes = [100 + 35 * math.sin(i / 7) + 0.1 * i for i in range(300)]
+        data = make_ohlcv(closes)
+        strategy = gated_strategy()
+        compute_indicators("X", data, strategy.required_columns)
+        data = data.dropna(subset=strategy.required_columns)
+        return [strategy.signal(history_window(data, i, strategy.lookback), None).values[name]
+                for i in range(len(data))]
+
+    def test_an_event_rule_fades_between_firings(self):
+        assert any(0 < abs(v) < 1 for v in self.biases("EMA 5x20 cross"))
+
+    def test_an_exit_event_rule_fades_too(self):
+        assert any(0 < abs(v) < 1 for v in self.biases("MACD signal cross"))
+
+    def test_a_state_rule_is_left_bare(self):
+        # Fading it would go on claiming an oversold reading after the reading recovered.
+        assert all(v in (-1.0, 0.0, 1.0) for v in self.biases("RSI reversal"))

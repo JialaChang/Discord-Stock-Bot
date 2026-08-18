@@ -10,8 +10,8 @@ import pytest
 
 from src.quant.backtest import history_window
 from src.quant.indicator import compute_indicators
-from src.quant.rule import (BollingerBand, EMACross, MACDSignalCross, MACDZeroLine,
-                            RSIReversal, SMATrend, StochCross)
+from src.quant.rule import (BollingerBand, Decay, EMACross, MACDSignalCross, MACDZeroLine,
+                            RSIReversal, Rule, SMATrend, StochCross)
 from tests.conftest import make_ohlcv
 
 
@@ -239,3 +239,109 @@ class TestDeclaredColumnsAndWarmup:
     def test_a_bias_stays_inside_the_contract(self, rule, computed):
         data = computed.dropna(subset=rule.required_columns)
         assert all(-1.0 <= b <= 1.0 for b in replay(rule, data))
+
+
+class Scripted(Rule):
+    """A rule answering from a script, one entry per call, silent once it runs out.
+
+    `reset()` clears the cursor as well as the call count, so a test can assert that a
+    wrapper's reset reached the rule it wraps rather than only its own held value.
+    """
+
+    name = "scripted"
+
+    def __init__(self, *biases: float) -> None:
+        self._script = list(biases)
+        super().__init__()
+
+    def reset(self) -> None:
+        self.cursor = 0
+        self.calls = 0
+
+    def bias(self, history: pd.DataFrame) -> float:
+        self.calls += 1
+        value = self._script[self.cursor] if self.cursor < len(self._script) else 0.0
+        self.cursor += 1
+        return value
+
+
+def fade(rule, bars: int) -> list[float]:
+    """The opinion the rule holds on each of `bars` consecutive calls."""
+    return [rule.bias(frame(Close=[100.0])) for _ in range(bars)]
+
+
+class TestDecay:
+    def test_an_event_is_passed_through_at_full_strength(self):
+        assert Decay(Scripted(1.0)).bias(frame(Close=[100.0])) == 1.0
+
+    def test_the_opinion_is_half_gone_after_one_half_life(self):
+        # Two silent bars at half_life=2, so the third reading is half the first.
+        held = fade(Decay(Scripted(1.0), half_life=2), 3)
+        assert held[2] == pytest.approx(held[0] / 2)
+
+    def test_the_fade_is_geometric_rather_than_linear(self):
+        held = fade(Decay(Scripted(1.0), half_life=2), 5)
+        assert held[4] == pytest.approx(0.25)
+
+    def test_an_opposite_event_replaces_rather_than_blends(self):
+        # A death cross two bars after a golden one means short, not the average of both.
+        held = fade(Decay(Scripted(1.0, 0.0, -1.0), half_life=3), 3)
+        assert held[2] == -1.0
+
+    def test_a_fresh_event_restores_a_faded_opinion(self):
+        held = fade(Decay(Scripted(1.0, 0.0, 0.0, 1.0), half_life=3), 4)
+        assert held[2] < 1.0 and held[3] == 1.0
+
+    def test_a_spent_opinion_reaches_exact_silence(self):
+        # Not merely small: `_agreed` names any rule leaning the way a decision went, so a
+        # whisper that never reaches zero would be reported as a reason for the trade.
+        held = fade(Decay(Scripted(1.0), half_life=1, floor=0.05), 6)
+        assert held[-1] == 0.0
+        assert 0.0 in held
+
+    def test_the_floor_is_configurable(self):
+        held = fade(Decay(Scripted(1.0), half_life=1, floor=0.3), 3)
+        assert held[2] == 0.0  # 0.25 is under a floor of 0.3
+
+    def test_the_inner_rule_is_consulted_on_every_bar(self):
+        # A wrapped CrossRule carries a tracker; skipping a call while an opinion is still
+        # live would march it past a crossing and report the wrong direction later.
+        inner = Scripted(1.0)
+        decay = Decay(inner, half_life=5)
+        fade(decay, 4)
+        assert inner.calls == 4
+
+    def test_reset_clears_the_held_opinion_and_reaches_the_inner_rule(self):
+        inner = Scripted(1.0, 0.0, 0.0)
+        decay = Decay(inner, half_life=5)
+        fade(decay, 3)
+        decay.reset()
+        assert inner.calls == 0 and inner.cursor == 0
+        assert decay.bias(frame(Close=[100.0])) == 1.0  # The script starts over, undimmed
+
+    def test_declarations_are_forwarded_from_the_wrapped_rule(self):
+        inner = EMACross(5, 20)
+        decay = Decay(inner)
+        assert decay.name == inner.name
+        assert decay.required_columns == inner.required_columns
+        assert decay.warmup == inner.warmup
+        assert decay.lookback == inner.lookback
+
+    def test_a_half_life_must_be_positive(self):
+        with pytest.raises(ValueError):
+            Decay(Scripted(1.0), half_life=0)
+
+    def test_wrapping_a_cross_rule_keeps_its_crossings(self, computed):
+        # The crossings a bare rule finds must still be there once wrapped, on the same
+        # bars and in the same direction; decay only fills the silence between them.
+        bare = replay(EMACross(5, 20), computed)
+        wrapped = replay(Decay(EMACross(5, 20), half_life=3), computed)
+        for i, value in enumerate(bare):
+            if value != 0.0:
+                assert wrapped[i] == value
+
+    def test_decay_fills_the_gaps_a_bare_event_rule_leaves(self, computed):
+        bare = replay(EMACross(5, 20), computed)
+        wrapped = replay(Decay(EMACross(5, 20), half_life=3), computed)
+        speaking = sum(1 for v in bare if v != 0.0)
+        assert sum(1 for v in wrapped if v != 0.0) > speaking

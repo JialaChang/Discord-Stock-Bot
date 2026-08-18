@@ -31,18 +31,21 @@ if not TOKEN:
 if not GUILD:
     logger.info("GUILD_ID not found in environment variables")
 
+class StockBot(commands.Bot):
+    async def setup_hook(self):
+        if GUILD:
+            self.tree.copy_global_to(guild=GUILD)
+            await self.tree.sync(guild=GUILD)
+        else:
+            await self.tree.sync()
+
 # Intents decide which gateway events the bot subscribes to; undeclared events are not pushed.
 intents = discord.Intents.default()
-bot = commands.Bot(command_prefix='$', intents=intents)
+bot = StockBot(command_prefix='$', intents=intents)
 
 
 @bot.event
 async def on_ready():
-    if GUILD:
-        bot.tree.copy_global_to(guild=GUILD)
-        await bot.tree.sync(guild=GUILD)
-    else:
-        await bot.tree.sync()
     logger.info(f"Discord Bot Login Identity --> {bot.user}")
 
 

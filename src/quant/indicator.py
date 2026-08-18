@@ -42,6 +42,8 @@ def compute_indicators(ticker: str, data: pd.DataFrame, columns: list[str] | Non
         data['SMA_20'] = pta.sma(close, length=20)
     if should('SMA_60'):
         data['SMA_60'] = pta.sma(close, length=60)
+    if should('SMA_200'):
+        data['SMA_200'] = pta.sma(close, length=200)
 
     # ── EMA (moving average) ──────────────────────────────────
     # Exponential moving average, weights recent prices more and reacts faster to moves.
@@ -53,6 +55,8 @@ def compute_indicators(ticker: str, data: pd.DataFrame, columns: list[str] | Non
         data['EMA_20'] = pta.ema(close, length=20)
     if should('EMA_60'):
         data['EMA_60'] = pta.ema(close, length=60)
+    if should('EMA_200'):
+        data['EMA_200'] = pta.ema(close, length=200)
 
     # ── MACD ───────────────────────────────────────────────────
     # Difference between two EMAs, measures momentum strength and direction changes.

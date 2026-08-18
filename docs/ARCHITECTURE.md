@@ -94,6 +94,7 @@ yfinance → SQLite 的**寫入**路徑，由兩支回補腳本共用，統一�
 | 進場 | `EMACross(fast, slow)` | 事件 | 快慢 EMA 交叉 |
 | 出場 | `BollingerBand` | 事件 | 觸及軌道視為漲跌過度延伸 |
 | 出場 | `MACDSignalCross` | 事件 | DIF 與 DEM 交叉，即柱狀體變號 |
+| 包裝 | `Decay(rule, half_life, floor)` | 隨內層 | 使事件的意見於窗口內漸弱而非當根即止 |
 
 > **趨勢規則採連續值而非二值。** 組合策略以零附近的帶狀區間開關閘門，階梯函數會使閘門在每根貼近均線的 K 上翻面。
 
@@ -102,6 +103,14 @@ yfinance → SQLite 的**寫入**路徑，由兩支回補腳本共用，統一�
 `CrossRule` 為所有交叉規則的基底，其 `_CrossTracker` 記住兩線上次嚴格分開時何者在上 —— `低 → 相等 → 高`（真交叉）與 `高 → 相等 → 高`（貼合後折返）於相鄰兩列而言是相同的輸入。`lookback = 2` 僅用於在首根 K 補上初始記憶。
 
 > **`precision` 決定兩線比較至小數第幾位，`None` 為精確比較。** 唯有以價格計價的線才有最小跳動單位，小於該單位的差距方可視為雜訊；`MACD_dif` 與 `MACD_dem` 隨價格縮放，取至分位會在低價標的上將大量真實交叉壓成相等。
+
+`Decay(rule, half_life, floor)` 包裝另一條規則，本身亦是 `Rule`。事件規則只在觸發當根表態後保留一段漸弱的意見，桶問的是「是否在一段窗口內先後同意」，`half_life` 即該窗口。每根沉默的 K 乘上 `0.5 ** (1 / half_life)`，低於 `floor` 歸為精確的 `0.0`；一次事件的壽命為 `half_life × log₂(1 / floor)`。
+
+> **`floor` 不只為了終止衰減。** `_agreed()` 會將任何與決定同向的規則列入報表理由，少了下限，一縷 0.0001 的餘音也會被記為進場原因。
+
+> **包裝事件，不包裝狀態。** `RSIReversal` 與 `BollingerBand` 只要條件成立便持續表態，衰減它們等於在讀數回復後仍宣稱超賣。
+
+> **一條規則只包一次，並共用該包裝。** 組合策略以 identity 登錄規則且看不穿包裝，兩層包裝同一實例會使內層每根 K 求值兩次，交叉追蹤器因而越過其正要回報的交叉。
 
 ### `Strategy` (`src/quant/strategy.py`)
 
@@ -130,6 +139,13 @@ yfinance → SQLite 的**寫入**路徑，由兩支回補腳本共用，統一�
 > **一票否決無法以加權平均表達**，此即本組合方式與等權投票的分野。`voting_strategy` 作為對照組保留於同一檔案，供實測比較。
 
 > **同桶規則的形狀須一致**（全連續或全事件），因為混合它們的是平均。每根 K 皆表態的規則會壓過偶爾才發言者，無論兩者權重為何。
+
+| 預設組合 | 趨勢（閘門） | 進場 | 出場 |
+|----------|--------------|------|------|
+| `gated_strategy()` | `SMATrend(200)` | `RSIReversal`、`Decay(StochCross)`、`Decay(EMACross)` | `BollingerBand`、`Decay(MACDSignalCross)` |
+| `voting_strategy()` | 無 | `SMATrend(60)`、`MACDZeroLine`、`RSIReversal`、`StochCross`、`EMACross` | 同進場 |
+
+> **閘門讀的量不得與觸發同源。** `SMATrend` 讀收盤價偏離均線的幅度，而 `RSIReversal`、`StochCross` 正是在價格遠低於均線時看多，兩者實為同一個量的正負兩面，閘門因而幾乎恆與觸發相反。拉長閘門期數至 `SMATrend()` 是在分離兩者的時間尺度。
 
 > **閘門帶有遲滯。** `trend_exit` 與 `trend_enter` 之間維持上一次的決定。少了這段帶，分數每次擦過門檻閘門即翻面，而每次翻面都強制平倉。
 
@@ -287,6 +303,8 @@ Embed 所需的最小快照。`previous_close` 亦供盤中圖著色使用。`rs
 | 單輪策略狀態不跨輪殘留 | `test_backtest.py::TestStrategyLifecycle` |
 | 交叉為事件，貼合後折返不觸發訊號 | `test_rule.py::TestEMACross` |
 | 規則宣告的欄位算得出、`warmup` 不樂觀、`bias` 不越界 | `test_rule.py::TestDeclaredColumnsAndWarmup` |
+| 意見依半衰期漸弱、反向事件覆蓋而非混合、低於下限歸零 | `test_rule.py::TestDecay` |
+| 預設組合只包裝事件規則，狀態規則維持滿分作答 | `test_composite.py::TestGatedPresetComposition` |
 | 閘門為否決而非投票，未決時擋住兩側 | `test_composite.py::TestEntryNeedsGateAndTrigger`、`TestNoTrendRules` |
 | 閘門帶遲滯，帶內維持上一次的決定 | `test_composite.py::TestGateHysteresis` |
 | 出場相對持倉判讀，且永不轉為反手 | `test_composite.py::TestExit` |

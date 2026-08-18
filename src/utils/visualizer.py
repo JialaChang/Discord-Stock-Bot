@@ -21,6 +21,9 @@ _MARKET_COLORS = mpf.make_marketcolors(
 )
 _MPF_STYLE = mpf.make_mpf_style(marketcolors=_MARKET_COLORS, gridstyle='--')
 
+# Beyond this many bars a candle is about a pixel wide, so a long backtest is drawn as a line instead.
+_MAX_CANDLES = 600
+
 # Indicators overlay on the daily chart: column -> (color, label).
 _HISTORY_CHART_IND = {
     'SMA_5': ("#FFA41C", '5MA'),
@@ -142,7 +145,7 @@ def generate_backtest_chart(ticker: str, result: BacktestResult) -> io.BytesIO:
 
     mpf.plot(
         data,
-        type='candle',
+        type='candle' if len(data) <= _MAX_CANDLES else 'line',
         addplot=addplot,
         style=_MPF_STYLE,
         title=f"\n{ticker}",
