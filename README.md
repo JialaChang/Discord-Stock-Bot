@@ -135,6 +135,13 @@ python src/database/database.py  # 操作資料庫（CLI界面）
 
 > **HTML 報表**：回測完成後可選擇匯出 HTML 績效報表；資料庫查詢超過 50 筆時自動改為匯出 HTML 報表。檔案輸出至 `exports/`
 
+HTML 報表範例（台積電實際資料，可直接開啟檢視）：
+
+- [回測績效報表](https://htmlpreview.github.io/?https://raw.githubusercontent.com/JialaChang/Stock-Bot/main/docs/samples/backtest.html) — 績效指標與逐筆交易明細
+- [歷史價格報表](https://htmlpreview.github.io/?https://raw.githubusercontent.com/JialaChang/Stock-Bot/main/docs/samples/prices.html) — OHLCV 明細，收盤價依漲跌上色
+
+> 兩份範例由 `docs/samples/generate.py` 產生：從 yfinance 下載真實行情後，呼叫與正式流程相同的匯出函式，因此不會與程式行為脫節。
+
 ### 測試
 
 ```bash
@@ -143,25 +150,6 @@ uv run pytest   # 執行全部測試
 ```
 
 測試全程離線：以 in-memory SQLite 與合成 OHLCV 資料驗證，不呼叫 yfinance，也不依賴本機的 `stock_data.db`，因此重建資料庫不影響測試結果。
-
-| 檔案 | 涵蓋範圍 |
-|------|----------|
-| `tests/test_models.py` | 單筆交易的金額損益與報酬率、回測績效指標、快照漲跌幅與指標缺值顯示 |
-| `tests/test_sync.py` | 批次資料拆解、還原收盤價漂移與歷史缺口偵測、回補時間戳 |
-| `tests/test_fetcher.py` | 代碼正規化（含 `.TW` / `.TWO` / dash 形式）、還原權值回推、異常列處理 |
-| `tests/test_backtest.py` | 訊號隔日開盤成交、平倉反手、策略可見歷史區間、整股倉位計算、多空停損成交價、逐筆損益與權益曲線一致、指標暖身、資料不足例外 |
-| `tests/test_rule.py` | 各規則的偏向讀值、交叉事件判定（含兩線貼合與假交叉）、意見衰減、宣告的欄位與暖身是否正確 |
-| `tests/test_strategy.py` | 交叉方向到訊號的映射、反手訊號選擇、單輪狀態重置、RSI 門檻讀值 |
-| `tests/test_composite.py` | 閘門否決與遲滯、進出場門檻、規則求值次數與可見視窗、訊號內容、桶內宣告合併、預設組合的包裝對象 |
-| `tests/test_html_report.py` | 報表逃脫、匯出檔名過濾、數值格式化 |
-| `tests/test_bot_view.py` | Embed 標題與快照組裝（現價來源、前收基準、指標缺值） |
-
-HTML 報表範例（台積電實際資料，可直接開啟檢視）：
-
-- [回測績效報表](https://htmlpreview.github.io/?https://raw.githubusercontent.com/JialaChang/Stock-Bot/main/docs/samples/backtest.html) — 績效指標與逐筆交易明細
-- [歷史價格報表](https://htmlpreview.github.io/?https://raw.githubusercontent.com/JialaChang/Stock-Bot/main/docs/samples/prices.html) — OHLCV 明細，收盤價依漲跌上色
-
-> 兩份範例由 `docs/samples/generate.py` 產生：從 yfinance 下載真實行情後，呼叫與正式流程相同的匯出函式，因此不會與程式行為脫節。
 
 ---
 
@@ -182,8 +170,8 @@ HTML 報表範例（台積電實際資料，可直接開啟檢視）：
 |------|------|
 | `RSI` | 單一指標：超賣進場、超買出場 |
 | `EMA` | 單一指標：EMA5/20 交叉，交叉同時平舊倉並開新倉 |
-| `Gated` | 依角色組合：SMA200 趨勢作閘門，僅在其放行的方向接受反轉訊號；事件規則的意見保留數根 K |
-| `Vote` | 全部規則一張等權票、無閘門，作為前者的對照組 |
+| `Gated` | 依角色分為趨勢閘門、進場觸發與出場判定 |
+| `Vote` | 所有規則以等權投票合併，作為 `Gated` 的對照組 |
 
 輸入格式範例：
 
