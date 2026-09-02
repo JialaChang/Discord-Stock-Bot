@@ -156,6 +156,34 @@
 
 ---
 
+## HTTP API (`src/api/`)
+
+`main.py` 建立應用程式並掛上 CORS 與路由，`routes.py` 定義端點，`schemas.py` 定義回應模型。與 Discord 指令共用同一組服務，僅回應形式不同。
+
+| 狀態碼 | 情境 |
+|--------|------|
+| `404` | 查無歷史資料 |
+| `422` | `InsufficientDataError`，代碼可解析但歷史過短 |
+| `500` | 其他例外，原因僅寫入日誌，避免內部路徑外流 |
+
+`except HTTPException` 必須排在 `except Exception` 之前，否則已拋出的 404 會被攔下並改報 500。
+
+回應模型設定 `from_attributes=True`，以 `model_validate(obj)` 依屬性讀取。屬性存取涵蓋 `@property`，`change_percent` 因而得以帶出，直接回傳 dataclass 則會遺失。回應只提供數值，不含 `change_str` 一類的格式化字串，格式化屬前端職責。
+
+處理函式雖已回傳模型，仍保留 `response_model`：`/openapi.json` 由它產生，前端型別再由該規格生成。路由統一置於 `/api` 前綴下，與 FastAPI 自身的 `/docs`、`/openapi.json` 區隔，前端亦可據此以單一規則代理；代理後瀏覽器視為同源，不經過 CORS。
+
+### `GET /api/stock/{ticker}`
+
+```
+輸入 ticker
+  → StockDataFetcher 正規化代碼
+  → 並行取得歷史與盤中資料
+  → build_snapshot 組合價格、RSI 與前收
+  → SnapshotResponse.model_validate 轉為 JSON
+```
+
+---
+
 ## 測試
 
 測試全程離線，使用記憶體內 SQLite 與合成 OHLCV，不呼叫 yfinance，也不依賴本機資料庫。測試重點包括：

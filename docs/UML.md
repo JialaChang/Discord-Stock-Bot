@@ -1,6 +1,6 @@
 # 模組相依關係
 
-依目錄結構拆成 7 張圖，呈現類別與模組間的相依方向。
+依目錄結構拆成 8 張圖，呈現類別與模組間的相依方向。
 
 完整簽章、參數語意與行為規則見 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
@@ -363,7 +363,60 @@ classDiagram
 
 `visualizer` 自行計算圖上的均線，不相依於 `indicator`；`dc_bot` 亦不再直接計算指標，Embed 所需的一項由 `dc_bot_view.build_snapshot` 自行取得。
 
-## 5. 儲存層 (`src/database/`)
+## 5. HTTP API (`src/api/`)
+
+`routes` 沿用 `dc_bot_view.build_snapshot`，故相依於 `bot`；兩者同為呈現層，共用快照組裝邏輯。
+
+```mermaid
+classDiagram
+    direction TB
+
+    class main {
+        <<Module: api/main>>
+        +FastAPI app
+    }
+
+    class routes {
+        <<Module: api/routes>>
+        +APIRouter router
+        +get_stock_snapshot(ticker) SnapshotResponse
+    }
+
+    class SnapshotResponse {
+        <<pydantic.BaseModel>>
+        +str ticker
+        +str name
+        +float current_price
+        +float previous_close
+        +float_or_None rsi_value
+        +datetime latest_time
+        +float change_percent
+    }
+
+    class StockDataFetcher {
+        <<見「資料存取與排程腳本」圖>>
+    }
+    class dc_bot_view {
+        <<見「Bot 與輸出工具」圖>>
+    }
+    class InsufficientDataError {
+        <<見「技術分析與回測引擎」圖>>
+    }
+    class StockSnapshot {
+        <<見「資料模型」圖>>
+    }
+
+    main --> routes : 掛載路由
+    routes --> StockDataFetcher : 實例化
+    routes --> dc_bot_view : 組裝快照
+    routes ..> StockSnapshot : 讀取
+    routes ..> SnapshotResponse : 轉換與回傳
+    routes ..> InsufficientDataError : 捕捉並轉為 422
+```
+
+`SnapshotResponse` 只取 `StockSnapshot` 的數值欄位與 `change_percent`，不含 `change_str` 等格式化字串。
+
+## 6. 儲存層 (`src/database/`)
 
 ```mermaid
 classDiagram
@@ -423,7 +476,7 @@ classDiagram
     daily_prices --> stocks : FK (ticker)
 ```
 
-## 6. 資料存取與排程腳本 (`src/data/`、`scripts/`)
+## 7. 資料存取與排程腳本 (`src/data/`、`scripts/`)
 
 `fetcher` 為讀取門面，`sync` 為寫入路徑，三支腳本一律經由 `sync` 寫入。
 
@@ -508,7 +561,7 @@ classDiagram
     seed_stocks ..> stocks : 寫入
 ```
 
-## 7. 測試 (`tests/`)
+## 8. 測試 (`tests/`)
 
 同時作為覆蓋範圍對照。
 

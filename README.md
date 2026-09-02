@@ -12,6 +12,7 @@
 - **規則依角色組合**：趨勢作閘門、進場作觸發、出場相對持倉判讀
 - **完整交易紀錄**：每筆交易的進出場、價格、訊號條件與損益
 - **Discord 機器人**：可直接於 Discord 中執行指令並輸出 Embed
+- **HTTP API**：同一組運算以 JSON 提供，供網頁前端取用
 
 <div>
   
@@ -28,6 +29,7 @@
 ```
 stock-bot/
 ├── src/
+│   ├── api/          # HTTP API：路由、回應模型 & 應用程式進入點
 │   ├── bot/          # Discord 斜線指令 & UI 元件
 │   ├── data/         # 股票資料查詢（fetcher）與寫入同步（sync）
 │   ├── quant/        # 技術指標、規則、策略 & 回測引擎
@@ -131,6 +133,8 @@ python scripts/daily_updater.py
 python src/bot/dc_bot.py         # 啟動 Discord 機器人
 python src/quant/backtest.py     # 執行回測（CLI界面）
 python src/database/database.py  # 操作資料庫（CLI界面）
+
+uv run uvicorn src.api.main:app --reload  # 啟動 HTTP API（--reload 為存檔自動重啟）
 ```
 
 > **HTML 報表**：回測完成後可選擇匯出 HTML 績效報表；資料庫查詢超過 50 筆時自動改為匯出 HTML 報表。檔案輸出至 `exports/`
@@ -185,6 +189,18 @@ uv run pytest   # 執行全部測試
 | `^GSPC` | `^GSPC` | S&P 500 指數 |
 
 > 各指令的內部資料流與模組職責請見 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+
+---
+
+## HTTP API 說明
+
+供網頁前端取用的 JSON 介面，與 Discord 指令共用同一組資料與運算，僅回應形式不同。
+
+| 端點 | 說明 |
+|------|------|
+| `GET /api/stock/{ticker}` | 查詢股票快照：現價、前收、漲跌幅與 RSI |
+
+> 回應只提供原始數值，格式化交由前端決定。錯誤代碼與序列化細節請見 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 
 ---
 
