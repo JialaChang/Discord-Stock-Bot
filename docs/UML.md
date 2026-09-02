@@ -294,7 +294,7 @@ classDiagram
         +commands.Bot bot
         +dict~str_type~ STRATEGIES
         +list~str~ BOT_PERIODS
-        +analyze_stock(interaction, ticker)
+        +exhibit_stock(interaction, ticker)
         +backtest_stock(interaction, ticker, strategy, period)
     }
 
@@ -372,7 +372,7 @@ classDiagram
     class database {
         <<Module: database/database>>
         +str DB_PATH
-        +connect_db() Connection
+        +connect_db() ContextManager~Connection~
         +load_sql(name) str
         +init_database()
         +insert_stock(ticker, name, market)

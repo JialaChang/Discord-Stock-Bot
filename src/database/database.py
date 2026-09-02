@@ -4,6 +4,8 @@ import logging
 from datetime import datetime
 from functools import lru_cache
 from typing import Any
+from contextlib import contextmanager
+from collections.abc import Generator
 
 
 logger = logging.getLogger(__name__)
@@ -22,18 +24,21 @@ def load_sql(name: str) -> str:
         return f.read()
 
 
-def connect_db() -> sqlite3.Connection:
-    """Open the project database with foreign keys enforced."""
+@contextmanager
+def connect_db() -> Generator[sqlite3.Connection]:
+    """Open the project database with foreign keys enforced, closing it on exit."""
     connect = sqlite3.connect(DB_PATH)
     connect.execute("PRAGMA foreign_keys = ON")
-    return connect
-
+    try:
+        with connect:    # sqlite3's own __exit__: commit on success, rollback on error
+            yield connect
+    finally:
+        connect.close()
 
 def init_database():
     """Initialize the SQLite database tables."""
     with connect_db() as connect:
         connect.executescript(load_sql('schema'))
-        connect.commit()
 
     logger.info(f"Database created at {DB_PATH}")
 
@@ -43,7 +48,6 @@ def insert_stock(ticker: str, name: str, market: str) -> None:
     with connect_db() as connect:
         cursor = connect.cursor()
         cursor.execute(load_sql('upsert_stock'), (ticker, name, market))
-        connect.commit()
 
 
 def delete_stock(ticker: str) -> None:
@@ -56,7 +60,6 @@ def delete_stock(ticker: str) -> None:
         cursor.execute('''
             DELETE FROM stocks WHERE ticker = ?
         ''', (ticker,))
-        connect.commit()
 
 
 def get_stock(ticker: str) -> dict[str, Any] | None:

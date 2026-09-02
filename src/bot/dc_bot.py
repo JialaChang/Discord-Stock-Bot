@@ -36,6 +36,10 @@ class StockBot(commands.Bot):
         if GUILD:
             self.tree.copy_global_to(guild=GUILD)
             await self.tree.sync(guild=GUILD)
+            # Commands registered globally by an earlier run stay registered and
+            # show up alongside the guild copies. Push an empty global list to drop them.
+            self.tree.clear_commands(guild=None)
+            await self.tree.sync()
         else:
             await self.tree.sync()
 
@@ -60,7 +64,7 @@ async def on_resumed():
 
 
 @bot.tree.command(name="stock", description="Enter a ticker to query info and charts (TW/US stocks and some indices only)")
-async def analyze_stock(interaction: discord.Interaction, ticker: str):
+async def exhibit_stock(interaction: discord.Interaction, ticker: str):
     # defer() prevents Discord from timing out the interaction if processing takes over 3 seconds
     await interaction.response.defer()
 
@@ -140,7 +144,8 @@ async def backtest_stock(interaction: discord.Interaction, ticker: str, strategy
             fetcher.fetch_historical_data, days=engine.required_history_days(period_days)
         )
         if data.empty:
-            await interaction.followup.send(f"Could not retrieve historical data for `{stock_ticker}`...\n> Please check that the ticker is correct, or the stock may not be in the database yet")
+            await interaction.followup.send(f"Could not retrieve historical data for `{stock_ticker}`...\n"
+                                            "> Please check that the ticker is correct, or the stock may not be in the database yet")
             logger.warning(f"Failed to retrieve data for '{stock_ticker}'...")
             return
 
